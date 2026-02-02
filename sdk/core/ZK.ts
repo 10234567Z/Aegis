@@ -20,6 +20,18 @@
 
 import { ethers } from 'ethers';
 import { FrostSignature } from './contract';
+import { 
+  VOTE_VALUES, 
+  VoteDecision, 
+  GUARDIAN_COUNT, 
+  GUARDIAN_THRESHOLD,
+  isProposalApproved,
+  isProposalRejected,
+  getVotingPhase,
+} from './types';
+
+// Re-export for convenience
+export { VOTE_VALUES, VoteDecision } from './types';
 
 // ─── Types ───
 
@@ -73,7 +85,10 @@ const DEFAULT_CONFIG: ZKVoteConfig = {
   timeout: 300000, // 5 minutes
 };
 
+// ABI aligned with zkVoteModule.ts (guardian-node)
 const ZK_VOTE_VERIFIER_ABI = [
+  "function submitCommitment(bytes32 proposalId, bytes32 commitment, uint8 guardianSlot)",
+  "function revealVote(bytes32 proposalId, uint8 guardianSlot, uint8 vote, uint[2] pA, uint[2][2] pB, uint[2] pC)",
   "function getProposalState(bytes32 proposalId) view returns (uint8 commitCount, uint8 revealCount, uint8 approveCount, uint8 rejectCount, uint8 abstainCount, bool isFinalized)",
   "function getProposal(bytes32 proposalId) view returns (address target, uint256 value, bytes data, uint256 createdAt, uint256 expiresAt)",
   "function proposals(bytes32) view returns (bool exists)",
@@ -160,22 +175,24 @@ export class ZKVoteClient {
 
     const [, , , createdAt, expiresAt] = await verifier.getProposal(proposalId);
 
-    const threshold = 7;
-    const isApproved = Number(approveCount) >= threshold;
-    const isRejected = Number(rejectCount) > (10 - threshold);
+    // Build state object for helper functions
+    const state = {
+      commitCount: Number(commitCount),
+      revealCount: Number(revealCount),
+      approveCount: Number(approveCount),
+      rejectCount: Number(rejectCount),
+      abstainCount: Number(abstainCount),
+      isFinalized,
+    };
 
-    let phase: VoteStatus['phase'] = 'commit';
-    if (isFinalized) {
-      phase = 'complete';
-    } else if (Date.now() / 1000 > Number(expiresAt)) {
-      phase = 'expired';
-    } else if (Number(commitCount) >= 10) {
-      phase = 'reveal';
-    }
+    const expiresAtMs = Number(expiresAt) * 1000;
+    const approved = isProposalApproved(state);
+    const rejected = isProposalRejected(state);
+    const phase = getVotingPhase(state, expiresAtMs);
 
     // If approved, fetch FROST signature from Guardian API
     let frostSignature: FrostSignature | undefined;
-    if (isApproved) {
+    if (approved) {
       frostSignature = await this.getFrostSignature(proposalId);
     }
 
@@ -183,14 +200,14 @@ export class ZKVoteClient {
       proposalId,
       phase,
       votes: {
-        approve: Number(approveCount),
-        reject: Number(rejectCount),
-        abstain: Number(abstainCount),
-        pending: 10 - Number(revealCount),
+        approve: state.approveCount,
+        reject: state.rejectCount,
+        abstain: state.abstainCount,
+        pending: GUARDIAN_COUNT - state.revealCount,
       },
-      threshold,
-      isApproved,
-      isRejected,
+      threshold: GUARDIAN_THRESHOLD,
+      isApproved: approved,
+      isRejected: rejected,
       frostSignature,
       expiresAt: Number(expiresAt) * 1000,
     };

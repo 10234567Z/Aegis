@@ -70,6 +70,23 @@ export {
   type GuardianInfo,
 } from './core/ZK';
 
+// Re-export shared types (single source of truth)
+export {
+  VOTE_VALUES,
+  GUARDIAN_COUNT,
+  GUARDIAN_THRESHOLD,
+  isProposalApproved,
+  isProposalRejected,
+  getVotingPhase,
+  type VoteDecision,
+  type VoteValue,
+  type Groth16Proof,
+  type ZKProofResult,
+  type VoteCommitment,
+  type ProposalData,
+  type ProposalState,
+} from './core/types';
+
 // ─── Version ───
 
 export const VERSION = '1.0.0';
