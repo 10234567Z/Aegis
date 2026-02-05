@@ -22,6 +22,7 @@ import { SecurityContract, SecurityConfig, ExecuteParams, VDFProof, FrostSignatu
 import { VDFClient, VDFRequest, VDFStatus } from './VDF';
 import { ZKVoteClient, VoteStatus, TransactionProposal } from './ZK';
 import { LiFiClient, LiFiConfig, Route, ExecutionStatus as LiFiStatus, LIFI_DIAMOND } from './lifi';
+import { AMOUNT_THRESHOLDS } from './constants';
 
 // ─── Types ───
 
@@ -65,15 +66,6 @@ export interface ExecutionProgress {
   voteStatus?: VoteStatus;
   message: string;
 }
-
-// ─── Amount Thresholds ───
-
-const THRESHOLDS = {
-  LOW: BigInt('1000000000000000000'),        // 1 ETH - no VDF, fast voting
-  MEDIUM: BigInt('10000000000000000000'),    // 10 ETH - short VDF
-  HIGH: BigInt('100000000000000000000'),     // 100 ETH - medium VDF
-  CRITICAL: BigInt('1000000000000000000000'), // 1000 ETH - long VDF + extra scrutiny
-};
 
 // ─── Security Middleware ───
 
@@ -468,9 +460,9 @@ export class SecurityMiddleware {
    * Get risk level for an amount.
    */
   getRiskLevel(amount: bigint): 'low' | 'medium' | 'high' | 'critical' {
-    if (amount >= THRESHOLDS.CRITICAL) return 'critical';
-    if (amount >= THRESHOLDS.HIGH) return 'high';
-    if (amount >= THRESHOLDS.MEDIUM) return 'medium';
+    if (amount >= AMOUNT_THRESHOLDS.CRITICAL) return 'critical';
+    if (amount >= AMOUNT_THRESHOLDS.HIGH) return 'high';
+    if (amount >= AMOUNT_THRESHOLDS.MEDIUM) return 'medium';
     return 'low';
   }
 }

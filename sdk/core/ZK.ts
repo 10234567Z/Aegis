@@ -20,11 +20,16 @@
 
 import { ethers } from 'ethers';
 import { FrostSignature } from './contract';
+import {
+  GUARDIAN_API_URL,
+  ZK_POLL_INTERVAL,
+  ZK_TIMEOUT,
+  GUARDIAN_COUNT,
+  GUARDIAN_THRESHOLD,
+} from './constants';
 import { 
   VOTE_VALUES, 
-  VoteDecision, 
-  GUARDIAN_COUNT, 
-  GUARDIAN_THRESHOLD,
+  VoteDecision,
   isProposalApproved,
   isProposalRejected,
   getVotingPhase,
@@ -80,9 +85,9 @@ export interface GuardianInfo {
 // ─── Constants ───
 
 const DEFAULT_CONFIG: ZKVoteConfig = {
-  guardianApiUrl: 'http://localhost:3002',
-  pollInterval: 3000,
-  timeout: 300000, // 5 minutes
+  guardianApiUrl: GUARDIAN_API_URL,
+  pollInterval: ZK_POLL_INTERVAL,
+  timeout: ZK_TIMEOUT,
 };
 
 // ABI aligned with ZKVoteVerifier.sol

@@ -16,13 +16,19 @@
  */
 
 import { VDFProof } from './contract';
+import {
+  VDF_WORKER_URL,
+  VDF_POLL_INTERVAL,
+  VDF_TIMEOUT,
+  VDF_ITERATION_TIERS,
+} from './constants';
 
 // ─── Types ───
 
 export interface VDFConfig {
   workerUrl: string;              // VDF Worker server URL
-  pollInterval: number;           // Polling interval in ms (default: 2000)
-  timeout: number;                // Max wait time in ms (default: 600000 = 10 min)
+  pollInterval: number;           // Polling interval in ms
+  timeout: number;                // Max wait time in ms
 }
 
 export interface VDFRequest {
@@ -43,19 +49,10 @@ export interface VDFStatus {
 // ─── Constants ───
 
 const DEFAULT_CONFIG: VDFConfig = {
-  workerUrl: 'http://localhost:3001',
-  pollInterval: 2000,
-  timeout: 600000,
+  workerUrl: VDF_WORKER_URL,
+  pollInterval: VDF_POLL_INTERVAL,
+  timeout: VDF_TIMEOUT,
 };
-
-// Iteration tiers based on transaction amount (in wei)
-const ITERATION_TIERS = [
-  { threshold: BigInt('1000000000000000000000'),    iterations: 1000000 },   // > 1000 ETH: ~5 min
-  { threshold: BigInt('100000000000000000000'),     iterations: 500000 },    // > 100 ETH: ~2.5 min
-  { threshold: BigInt('10000000000000000000'),      iterations: 100000 },    // > 10 ETH: ~30 sec
-  { threshold: BigInt('1000000000000000000'),       iterations: 10000 },     // > 1 ETH: ~5 sec
-  { threshold: BigInt('0'),                         iterations: 0 },         // < 1 ETH: no delay
-];
 
 // ─── VDF Client ───
 
@@ -70,7 +67,7 @@ export class VDFClient {
    * Calculate required iterations based on transaction amount.
    */
   calculateIterations(amount: bigint): number {
-    for (const tier of ITERATION_TIERS) {
+    for (const tier of VDF_ITERATION_TIERS) {
       if (amount >= tier.threshold) {
         return tier.iterations;
       }

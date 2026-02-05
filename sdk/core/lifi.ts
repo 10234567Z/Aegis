@@ -13,6 +13,16 @@
  */
 
 import { ethers } from 'ethers';
+import {
+  LIFI_API_URL,
+  LIFI_INTEGRATOR_ID,
+  NATIVE_TOKEN as NATIVE_TOKEN_CONST,
+  LIFI_DIAMOND as LIFI_DIAMOND_CONST,
+} from './constants';
+
+// Re-export for external use
+export const NATIVE_TOKEN = NATIVE_TOKEN_CONST;
+export const LIFI_DIAMOND = LIFI_DIAMOND_CONST;
 
 // ─── Types ───
 
@@ -129,22 +139,8 @@ export interface ExecutionStatus {
 // ─── Constants ───
 
 const DEFAULT_CONFIG: LiFiConfig = {
-  apiUrl: 'https://li.quest/v1',
-  integratorId: 'sackmoney',
-};
-
-// Native token placeholder (same across chains)
-export const NATIVE_TOKEN = '0x0000000000000000000000000000000000000000';
-
-// LI.FI Diamond addresses per chain
-export const LIFI_DIAMOND: Record<number, string> = {
-  1: '0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE',      // Ethereum
-  10: '0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE',     // Optimism
-  56: '0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE',     // BSC
-  137: '0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE',    // Polygon
-  42161: '0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE',  // Arbitrum
-  43114: '0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE',  // Avalanche
-  8453: '0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE',   // Base
+  apiUrl: LIFI_API_URL,
+  integratorId: LIFI_INTEGRATOR_ID,
 };
 
 // ─── LI.FI Client ───

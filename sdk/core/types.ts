@@ -9,26 +9,18 @@
  *   - zk/circuits/GuardianVote.circom
  */
 
-// ─── Vote Types (aligned with GuardianVote.circom) ───
+import {
+  VOTE_VALUES,
+  GUARDIAN_COUNT,
+  GUARDIAN_THRESHOLD,
+  REJECTION_THRESHOLD,
+} from './constants';
 
-/**
- * Vote values as defined in the circuit.
- * REJECT=0, APPROVE=1, ABSTAIN=2
- */
-export const VOTE_VALUES = {
-  REJECT: 0,
-  APPROVE: 1,
-  ABSTAIN: 2,
-} as const;
+// Re-export constants for convenience
+export { VOTE_VALUES, GUARDIAN_COUNT, GUARDIAN_THRESHOLD, REJECTION_THRESHOLD };
 
 export type VoteDecision = keyof typeof VOTE_VALUES;
 export type VoteValue = typeof VOTE_VALUES[VoteDecision];
-
-// ─── Guardian Constants ───
-
-export const GUARDIAN_COUNT = 10;
-export const GUARDIAN_THRESHOLD = 7;  // 7/10 required for approval
-export const REJECTION_THRESHOLD = 4; // >3 rejections = rejected
 
 // ─── Proof Types (aligned with snarkjs/Groth16) ───
 

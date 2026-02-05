@@ -104,6 +104,19 @@ export {
   type ProposalState,
 } from './core/types';
 
+// Re-export constants
+export {
+  PROTOCOL_ADDRESSES,
+  VDF_WORKER_URL,
+  GUARDIAN_API_URL,
+  VDF_WORKER_URL_TESTNET,
+  GUARDIAN_API_URL_TESTNET,
+  LIFI_API_URL,
+  LIFI_INTEGRATOR_ID,
+  VDF_ITERATION_TIERS,
+  AMOUNT_THRESHOLDS,
+} from './core/constants';
+
 // ─── Version ───
 
 export const VERSION = '1.0.0';
@@ -112,22 +125,35 @@ export const VERSION = '1.0.0';
 
 import { ethers } from 'ethers';
 import { createSecurityMiddleware, MiddlewareConfig } from './core/middleware';
+import {
+  PROTOCOL_ADDRESSES,
+  VDF_WORKER_URL,
+  GUARDIAN_API_URL,
+  VDF_WORKER_URL_TESTNET,
+  GUARDIAN_API_URL_TESTNET,
+} from './core/constants';
 
 /**
  * Quick setup for mainnet.
+ * @throws Error if mainnet contracts are not yet deployed
  */
 export function createMainnetMiddleware(
   provider: ethers.Provider,
   signer: ethers.Signer,
 ): ReturnType<typeof createSecurityMiddleware> {
+  const addresses = PROTOCOL_ADDRESSES[1];
+  if (!addresses.middleware || !addresses.registry) {
+    throw new Error('Mainnet contracts not yet deployed. Use createSecurityMiddleware() with explicit addresses.');
+  }
+
   return createSecurityMiddleware({
     security: {
-      middlewareAddress: process.env.MAINNET_MIDDLEWARE_ADDRESS || '',
-      registryAddress: process.env.MAINNET_REGISTRY_ADDRESS || '',
+      middlewareAddress: addresses.middleware,
+      registryAddress: addresses.registry,
       chainId: 1,
     },
-    vdfWorkerUrl: process.env.VDF_WORKER_URL || 'https://vdf.sackmoney.io',
-    guardianApiUrl: process.env.GUARDIAN_API_URL || 'https://guardians.sackmoney.io',
+    vdfWorkerUrl: VDF_WORKER_URL,
+    guardianApiUrl: GUARDIAN_API_URL,
     provider,
     signer,
   });
@@ -135,19 +161,25 @@ export function createMainnetMiddleware(
 
 /**
  * Quick setup for testnet (Sepolia).
+ * @throws Error if testnet contracts are not yet deployed
  */
 export function createTestnetMiddleware(
   provider: ethers.Provider,
   signer: ethers.Signer,
 ): ReturnType<typeof createSecurityMiddleware> {
+  const addresses = PROTOCOL_ADDRESSES[11155111];
+  if (!addresses.middleware || !addresses.registry) {
+    throw new Error('Testnet contracts not yet deployed. Use createSecurityMiddleware() with explicit addresses.');
+  }
+
   return createSecurityMiddleware({
     security: {
-      middlewareAddress: process.env.TESTNET_MIDDLEWARE_ADDRESS || '',
-      registryAddress: process.env.TESTNET_REGISTRY_ADDRESS || '',
+      middlewareAddress: addresses.middleware,
+      registryAddress: addresses.registry,
       chainId: 11155111,
     },
-    vdfWorkerUrl: process.env.VDF_WORKER_URL || 'https://vdf-testnet.sackmoney.io',
-    guardianApiUrl: process.env.GUARDIAN_API_URL || 'https://guardians-testnet.sackmoney.io',
+    vdfWorkerUrl: VDF_WORKER_URL_TESTNET,
+    guardianApiUrl: GUARDIAN_API_URL_TESTNET,
     provider,
     signer,
   });
@@ -155,12 +187,17 @@ export function createTestnetMiddleware(
 
 /**
  * Quick setup for local development.
+ * Addresses must be provided since they're created at runtime.
  */
 export function createLocalMiddleware(
   provider: ethers.Provider,
   signer: ethers.Signer,
   addresses: { middleware: string; registry: string },
 ): ReturnType<typeof createSecurityMiddleware> {
+  if (!addresses.middleware || !addresses.registry) {
+    throw new Error('Local middleware and registry addresses are required.');
+  }
+
   return createSecurityMiddleware({
     security: {
       middlewareAddress: addresses.middleware,
