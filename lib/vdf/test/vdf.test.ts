@@ -40,7 +40,7 @@ async function runTests() {
     const delay = getRequiredDelay();
     const iterations = getRequiredIterations();
     assert(delay === 1800, 'VDF imposed: 30 minutes');
-    assert(iterations === 54_000_000, 'VDF iterations - 54M for 30 min');
+    assert(iterations === 300_000_000, 'VDF iterations - 300M for 30 min (166k/sec)');
     log(`Flagged tx: VDF required`);
     log(`Clean tx: No VDF`);
     log(`Delay: ${formatDelay(delay)}`);
@@ -70,8 +70,9 @@ async function runTests() {
     const proof = await prover.compute(challenge);
     const computeTime = Date.now() - startTime;
     log(`  Computation complete in ${(computeTime / 1000).toFixed(2)}s`);
-    assert(proof.output.length === 32, 'Output should be 32 bytes');
-    assert(proof.proof.length === 32, 'Proof should be 32 bytes');
+    // RSA-2048 modulus = 256 bytes for output and proof
+    assert(proof.output.length === 256, 'Output should be 256 bytes (RSA-2048)');
+    assert(proof.proof.length === 256, 'Proof should be 256 bytes (RSA-2048)');
     assert(proof.iterations === iterations, 'Iterations should match');
     log('  Verifying proof...');
     const result = await verifier.verify(challenge, proof);

@@ -80,7 +80,8 @@ export class VDFVerificationError extends VDFError {
 // --- Constants ---
 export const VDF_CONSTANTS = {
   VDF_DELAY_SECONDS: 1800,          // 30 minutes
-  VDF_ITERATIONS: 54_000_000,       // 1800s * 30k squarings/second
+  VDF_ITERATIONS: 300_000_000,      // 1800s * 166k squarings/second (fast hardware)
   MODULUS_BITS: 2048,               // RSA modulus size
   SECURITY_BITS: 128,               // Security parameter
+  SQUARINGS_PER_SECOND: 166_000,    // Calibrated for modern hardware
 };

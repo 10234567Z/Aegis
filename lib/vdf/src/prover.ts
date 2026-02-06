@@ -8,17 +8,25 @@
 
 import { sha256 } from '@noble/hashes/sha256';
 import { modPow, modInv } from 'bigint-mod-arith';
-import { VDFChallenge, VDFProof, VDFParams, VDFComputationError } from './types';
+import { VDFChallenge, VDFProof, VDFParams, VDFComputationError, VDF_CONSTANTS } from './types';
 import { validateVDFParams } from './params';
+
+// --- Constants ---
+
+// RSA-2048 modulus = 256 bytes
+const RSA_2048_BYTES = 256;
 
 // --- Helpers ---
 
 function bytesToBigInt(bytes: Buffer): bigint {
   return BigInt('0x' + bytes.toString('hex'));
 }
-function bigIntToBuffer(value: bigint, size: number = 32): Buffer {
+
+function bigIntToBuffer(value: bigint, size: number = RSA_2048_BYTES): Buffer {
   const hex = value.toString(16).padStart(size * 2, '0');
-  return Buffer.from(hex, 'hex');
+  // Truncate if longer than expected (shouldn't happen with correct modulus)
+  const truncatedHex = hex.slice(-size * 2);
+  return Buffer.from(truncatedHex, 'hex');
 }
 
 //Hash function for generating challenge
@@ -64,7 +72,7 @@ export class VDFProver {
     const startTime = Date.now();
     console.log(`[VDF Prover] Starting computation`);
     console.log(`  Iterations: ${challenge.iterations.toLocaleString()}`);
-    console.log(`  Expected time: ~${Math.ceil(challenge.iterations / 30000)}s`);
+    console.log(`  Expected time: ~${Math.ceil(challenge.iterations / VDF_CONSTANTS.SQUARINGS_PER_SECOND)}s`);
     
     try {
       // Step 1: Convert input to number in Z_N
@@ -103,8 +111,8 @@ export class VDFProver {
       console.log(`  Output: ${y.toString(16).slice(0, 16)}...`);
       
       const proof: VDFProof = {
-        output: bigIntToBuffer(y),
-        proof: bigIntToBuffer(pi),
+        output: bigIntToBuffer(y, RSA_2048_BYTES),
+        proof: bigIntToBuffer(pi, RSA_2048_BYTES),
         iterations: challenge.iterations,
         computeTime,
       };

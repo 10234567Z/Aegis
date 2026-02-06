@@ -67,8 +67,7 @@ export function validateVDFParams(params: VDFParams): void {
 }
 
 export function estimateComputeTime(iterations: number): number {
-  const SQUARINGS_PER_SECOND = 30_000;
-  return Math.ceil(iterations / SQUARINGS_PER_SECOND);
+  return Math.ceil(iterations / VDF_CONSTANTS.SQUARINGS_PER_SECOND);
 }
 
 export function printVDFConfig(): void {
