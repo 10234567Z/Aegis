@@ -47,7 +47,10 @@ contract GuardianRegistry {
     event Paused(bytes32 indexed eventId, string reason);
     event Unpaused(bytes32 indexed eventId);
     event AddressBlacklisted(address indexed target, bytes32 indexed eventId);
+    event AddressUnblacklisted(address indexed target, bytes32 indexed eventId);
     event ThresholdIncreased(uint8 oldThreshold, uint8 newThreshold, bytes32 indexed eventId);
+    event CrossChainEventReceived(bytes32 indexed eventId, uint16 sourceChain, SecurityAction action);
+    event CrossChainMessengerUpdated(address indexed oldMessenger, address indexed newMessenger);
 
     // ─── Enums ───
     enum SecurityAction {
@@ -61,11 +64,14 @@ contract GuardianRegistry {
     // ─── State ───
     IZKVoteVerifier public zkVoteVerifier;
     IFROSTVerifier public frostVerifier;
-    
+    address public crossChainMessenger;                // CrossChainMessenger contract
+    address public owner;                              // For admin functions
+
     bool public isPaused;
     uint8 public currentThreshold;                     // starts at 7, can increase to 8, 9
     mapping(address => bool) public blacklistedAddresses;
     mapping(bytes32 => bool) public processedProposals; // prevent duplicate execution
+    mapping(bytes32 => bool) public processedCrossChainEvents; // prevent cross-chain replay
 
     // Proposal details
     struct ProposalData {
@@ -87,6 +93,16 @@ contract GuardianRegistry {
         _;
     }
 
+    modifier onlyCrossChainMessenger() {
+        require(msg.sender == crossChainMessenger, "Only CrossChainMessenger");
+        _;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner");
+        _;
+    }
+
     // ─── Constructor ───
     constructor(
         address _zkVoteVerifier,
@@ -96,6 +112,19 @@ contract GuardianRegistry {
         zkVoteVerifier = IZKVoteVerifier(_zkVoteVerifier);
         frostVerifier = IFROSTVerifier(_frostVerifier);
         currentThreshold = _initialThreshold;
+        owner = msg.sender;
+    }
+
+    // ─── Admin Functions ───
+    /**
+     * @notice Sets the CrossChainMessenger contract address.
+     * @dev Only callable by owner. Should be set after deployment.
+     */
+    function setCrossChainMessenger(address _messenger) external onlyOwner {
+        require(_messenger != address(0), "Invalid messenger address");
+        address oldMessenger = crossChainMessenger;
+        crossChainMessenger = _messenger;
+        emit CrossChainMessengerUpdated(oldMessenger, _messenger);
     }
 
     // ─── Proposal Initiation (called by guardian-node when ML bot flags attack) ───
@@ -249,5 +278,126 @@ contract GuardianRegistry {
         // proposalCount would need a counter if we want to track it
         // For now, return 0 as placeholder
         return (isPaused, currentThreshold, 0);
+    }
+
+    // ─── Cross-Chain Receiver Functions ───
+    // These are called by CrossChainMessenger after receiving LayerZero messages
+    // and verifying FROST signatures.
+
+    /**
+     * @notice Receives an emergency pause from another chain.
+     * @dev Called by CrossChainMessenger after FROST signature verification.
+     */
+    function receiveRemotePause(
+        bytes32 eventId,
+        uint16 sourceChain,
+        string calldata reason
+    ) external onlyCrossChainMessenger {
+        require(!processedCrossChainEvents[eventId], "Event already processed");
+        processedCrossChainEvents[eventId] = true;
+
+        if (!isPaused) {
+            isPaused = true;
+            emit Paused(eventId, reason);
+        }
+        emit CrossChainEventReceived(eventId, sourceChain, SecurityAction.EMERGENCY_PAUSE);
+    }
+
+    /**
+     * @notice Receives an unpause from another chain.
+     * @dev Called by CrossChainMessenger after FROST signature verification.
+     */
+    function receiveRemoteUnpause(
+        bytes32 eventId,
+        uint16 sourceChain
+    ) external onlyCrossChainMessenger {
+        require(!processedCrossChainEvents[eventId], "Event already processed");
+        processedCrossChainEvents[eventId] = true;
+
+        if (isPaused) {
+            isPaused = false;
+            emit Unpaused(eventId);
+        }
+        emit CrossChainEventReceived(eventId, sourceChain, SecurityAction.UNPAUSE);
+    }
+
+    /**
+     * @notice Receives a blacklist action from another chain.
+     * @dev Called by CrossChainMessenger after FROST signature verification.
+     */
+    function receiveRemoteBlacklist(
+        bytes32 eventId,
+        uint16 sourceChain,
+        address target
+    ) external onlyCrossChainMessenger {
+        require(!processedCrossChainEvents[eventId], "Event already processed");
+        require(target != address(0), "Invalid target address");
+        processedCrossChainEvents[eventId] = true;
+
+        if (!blacklistedAddresses[target]) {
+            blacklistedAddresses[target] = true;
+            emit AddressBlacklisted(target, eventId);
+        }
+        emit CrossChainEventReceived(eventId, sourceChain, SecurityAction.BLACKLIST_ADDRESS);
+    }
+
+    /**
+     * @notice Receives an unblacklist action from another chain.
+     * @dev Called by CrossChainMessenger after FROST signature verification.
+     */
+    function receiveRemoteUnblacklist(
+        bytes32 eventId,
+        uint16 sourceChain,
+        address target
+    ) external onlyCrossChainMessenger {
+        require(!processedCrossChainEvents[eventId], "Event already processed");
+        require(target != address(0), "Invalid target address");
+        processedCrossChainEvents[eventId] = true;
+
+        if (blacklistedAddresses[target]) {
+            blacklistedAddresses[target] = false;
+            emit AddressUnblacklisted(target, eventId);
+        }
+        emit CrossChainEventReceived(eventId, sourceChain, SecurityAction.BLACKLIST_ADDRESS);
+    }
+
+    /**
+     * @notice Receives a threshold increase from another chain.
+     * @dev Called by CrossChainMessenger after FROST signature verification.
+     */
+    function receiveRemoteThresholdIncrease(
+        bytes32 eventId,
+        uint16 sourceChain
+    ) external onlyCrossChainMessenger {
+        require(!processedCrossChainEvents[eventId], "Event already processed");
+        processedCrossChainEvents[eventId] = true;
+
+        if (currentThreshold < 10) {
+            uint8 oldThreshold = currentThreshold;
+            currentThreshold++;
+            emit ThresholdIncreased(oldThreshold, currentThreshold, eventId);
+        }
+        emit CrossChainEventReceived(eventId, sourceChain, SecurityAction.THRESHOLD_INCREASE);
+    }
+
+    /**
+     * @notice Receives a monitor-only event from another chain.
+     * @dev No on-chain action, just logs the event. Guardian nodes react off-chain.
+     */
+    function receiveRemoteMonitor(
+        bytes32 eventId,
+        uint16 sourceChain
+    ) external onlyCrossChainMessenger {
+        require(!processedCrossChainEvents[eventId], "Event already processed");
+        processedCrossChainEvents[eventId] = true;
+
+        emit CrossChainEventReceived(eventId, sourceChain, SecurityAction.MONITOR_ONLY);
+    }
+
+    /**
+     * @notice Check if a cross-chain event has been processed.
+     */
+    function isCrossChainEventProcessed(bytes32 eventId) external view returns (bool) {
+        return processedCrossChainEvents[eventId];
     }
 }

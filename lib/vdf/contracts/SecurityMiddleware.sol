@@ -123,7 +123,7 @@ contract SecurityMiddleware {
         bool mlBotFlagged,
         bytes calldata txData
     ) external returns (bytes32 proposalId) {
-        require(!pendingTxs[txHash].vdfStartTime > 0, "Already queued");
+        require(pendingTxs[txHash].vdfStartTime == 0, "Already queued");
         require(!isPaused, "System paused");
         require(!blacklistedAddresses[sender], "Sender blacklisted");
         require(!blacklistedAddresses[destination], "Destination blacklisted");
@@ -178,57 +178,57 @@ contract SecurityMiddleware {
         bytes32 frostR,
         bytes32 frostZ
     ) external {
-        PendingTransaction storage tx = pendingTxs[txHash];
-        require(tx.vdfStartTime > 0, "Transaction not queued");
-        require(!tx.executed, "Already executed");
+        PendingTransaction storage ptx = pendingTxs[txHash];
+        require(ptx.vdfStartTime > 0, "Transaction not queued");
+        require(!ptx.executed, "Already executed");
         require(!isPaused, "System paused");
-        
+
         // PATH A: Not flagged by ML bot → instant execution
-        if (!tx.mlBotFlagged) {
-            tx.executed = true;
-            _executeTx(tx);
+        if (!ptx.mlBotFlagged) {
+            ptx.executed = true;
+            _executePtx(ptx);
             emit TransactionExecuted(txHash, "CLEAN_TRANSACTION");
             return;
         }
-        
+
         // CHECK: Has guardian REJECTED?
-        if (_isGuardianRejected(tx.proposalId)) {
-            tx.executed = true;
-            tx.guardianRejected = true;
+        if (_isGuardianRejected(ptx.proposalId)) {
+            ptx.executed = true;
+            ptx.guardianRejected = true;
             emit TransactionBlocked(txHash, "GUARDIAN_REJECTION");
             revert("Transaction rejected by guardians");
         }
-        
+
         // PATH B: Guardian Approval → BYPASS VDF
-        if (_isGuardianApproved(tx.proposalId)) {
+        if (_isGuardianApproved(ptx.proposalId)) {
             // Verify FROST signature
             require(
-                frostVerifier.verify(tx.proposalId, frostR, frostZ),
+                frostVerifier.verify(ptx.proposalId, frostR, frostZ),
                 "Invalid FROST signature"
             );
-            
-            tx.executed = true;
-            tx.guardianApproved = true;
-            
-            _executeTx(tx);
-            
-            emit GuardianBypass(txHash, tx.proposalId, GUARDIAN_THRESHOLD);
+
+            ptx.executed = true;
+            ptx.guardianApproved = true;
+
+            _executePtx(ptx);
+
+            emit GuardianBypass(txHash, ptx.proposalId, GUARDIAN_THRESHOLD);
             emit TransactionExecuted(txHash, "GUARDIAN_BYPASS");
             return;
         }
-        
+
         // PATH C: VDF Complete → Verify Time + Proof
-        require(block.timestamp >= tx.vdfDeadline, "VDF not yet complete");
-        
+        require(block.timestamp >= ptx.vdfDeadline, "VDF not yet complete");
+
         // Verify VDF proof
         require(
-            vdfVerifier.verify(txHash, tx.vdfStartTime, vdfProof),
+            vdfVerifier.verify(txHash, ptx.vdfStartTime, vdfProof),
             "Invalid VDF proof"
         );
-        
-        tx.executed = true;
-        _executeTx(tx);
-        
+
+        ptx.executed = true;
+        _executePtx(ptx);
+
         emit TransactionExecuted(txHash, "VDF_COMPLETE");
     }
     
@@ -291,12 +291,12 @@ contract SecurityMiddleware {
     /**
      * @dev Execute the actual transaction
      */
-    function _executeTx(PendingTransaction memory tx) internal {
+    function _executePtx(PendingTransaction memory ptx) internal {
         // Call destination contract with txData
-        (bool success,) = tx.destination.call{value: tx.value}(tx.txData);
+        (bool success,) = ptx.destination.call{value: ptx.value}(ptx.txData);
         require(success, "Transaction execution failed");
     }
-    
+
     // --- views ---
     function getTransactionStatus(bytes32 txHash) external view returns (
         bool exists,
@@ -307,15 +307,15 @@ contract SecurityMiddleware {
         uint256 vdfDeadline,
         bool vdfComplete
     ) {
-        PendingTransaction memory tx = pendingTxs[txHash];
+        PendingTransaction memory ptx = pendingTxs[txHash];
         return (
-            tx.vdfStartTime > 0,
-            tx.mlBotFlagged,
-            tx.executed,
-            tx.guardianApproved,
-            tx.guardianRejected,
-            tx.vdfDeadline,
-            block.timestamp >= tx.vdfDeadline
+            ptx.vdfStartTime > 0,
+            ptx.mlBotFlagged,
+            ptx.executed,
+            ptx.guardianApproved,
+            ptx.guardianRejected,
+            ptx.vdfDeadline,
+            block.timestamp >= ptx.vdfDeadline
         );
     }
     function getVDFDelay() external pure returns (uint256) {
