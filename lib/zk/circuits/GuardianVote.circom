@@ -18,13 +18,8 @@ include "../node_modules/circomlib/circuits/escalarmulany.circom";
  */ 
 
 template GuardianVote() {
-    // Private Inputs
-    signal input guardianId;       // 0–9
-    signal input guardianSecret;   // secret key for this guardian slot
-    signal input vote;             // 0/1/2
-    signal input nonce;            // random value
-
     // Public Inputs
+    signal input vote;             // 0/1/2
     signal input proposalId;               // proposal being voted on
     signal input commitment;               // hash
     signal input guardianPubKeys[10][2];   // all 10 guardian public keys [x, y]
@@ -78,9 +73,6 @@ template GuardianVote() {
     commitHash.inputs[3]<== proposalId;
 
     commitHash.out=== commitment;
-
-    signal output revealedVote;
-    revealedVote<== vote;
 }
 
 // Mux1 — selects one element from an array using an index signal
@@ -113,4 +105,4 @@ template Mux1(N) {
     out <== partial_results[N-1];
 }
 
-component main {public [proposalId, commitment, guardianPubKeys]} = GuardianVote();
+component main {public [proposalId, commitment, guardianPubKeys, vote]} = GuardianVote();
