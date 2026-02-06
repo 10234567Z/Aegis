@@ -19,10 +19,15 @@ include "../node_modules/circomlib/circuits/escalarmulany.circom";
 
 template GuardianVote() {
     // Public Inputs
-    signal input vote;             // 0/1/2
+    signal input vote;                     // 0/1/2
     signal input proposalId;               // proposal being voted on
     signal input commitment;               // hash
     signal input guardianPubKeys[10][2];   // all 10 guardian public keys [x, y]
+
+    // Private Inputs (not revealed)
+    signal input guardianId;               // which guardian (0-9)
+    signal input guardianSecret;           // guardian's private key
+    signal input nonce;                    // randomness for commitment
 
     // C1
     component isLessThan= LessThan(8);
