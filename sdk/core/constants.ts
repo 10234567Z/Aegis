@@ -82,25 +82,26 @@ export const GUARDIAN_THRESHOLD = 7;
 /** Rejections needed to block a transaction (>3) */
 export const REJECTION_THRESHOLD = 4;
 
-// ─── VDF Configuration ───
+// ─── VDF Configuration (ML Bot Trigger Only) ───
 
 /** Default polling interval for VDF status (ms) */
 export const VDF_POLL_INTERVAL = 2000;
 
-/** Default VDF computation timeout (ms) - 10 minutes */
-export const VDF_TIMEOUT = 600000;
+/** Default VDF computation timeout (ms) - 35 minutes */
+export const VDF_TIMEOUT = 2100000;
 
 /**
- * VDF iteration tiers based on transaction amount.
- * Higher amounts require more iterations (longer delay).
+ * VDF delay in seconds when ML bot flags transaction.
+ * Fixed 30 minute delay for all flagged transactions.
  */
-export const VDF_ITERATION_TIERS = [
-  { threshold: BigInt('1000000000000000000000'), iterations: 1000000 },  // > 1000 ETH: ~5 min
-  { threshold: BigInt('100000000000000000000'),  iterations: 500000 },   // > 100 ETH: ~2.5 min
-  { threshold: BigInt('10000000000000000000'),   iterations: 100000 },   // > 10 ETH: ~30 sec
-  { threshold: BigInt('1000000000000000000'),    iterations: 10000 },    // > 1 ETH: ~5 sec
-  { threshold: BigInt('0'),                      iterations: 0 },        // < 1 ETH: no delay
-] as const;
+export const VDF_DELAY_SECONDS = 1800;
+
+/**
+ * VDF iterations when ML bot flags transaction.
+ * 30 min * 166,000 squarings/sec = 300,000,000 iterations
+ * Calibrated for modern hardware. Aligned with lib/vdf constants.
+ */
+export const VDF_ITERATIONS = 300_000_000;
 
 // ─── ZK Voting Configuration ───
 
@@ -110,18 +111,13 @@ export const ZK_POLL_INTERVAL = 3000;
 /** Default voting timeout (ms) - 5 minutes */
 export const ZK_TIMEOUT = 300000;
 
-// ─── Amount Thresholds ───
+// ─── ML Bot Configuration ───
 
 /**
- * Risk thresholds for transaction amounts.
- * Used to determine security requirements.
+ * ML bot score threshold for flagging transactions.
+ * Score > 70 = flagged for VDF delay.
  */
-export const AMOUNT_THRESHOLDS = {
-  LOW: BigInt('1000000000000000000'),         // 1 ETH - no VDF, fast voting
-  MEDIUM: BigInt('10000000000000000000'),     // 10 ETH - short VDF
-  HIGH: BigInt('100000000000000000000'),      // 100 ETH - medium VDF
-  CRITICAL: BigInt('1000000000000000000000'), // 1000 ETH - long VDF + extra scrutiny
-} as const;
+export const ML_BOT_THRESHOLD = 70;
 
 // ─── Vote Values (aligned with GuardianVote.circom) ───
 

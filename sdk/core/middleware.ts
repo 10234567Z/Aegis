@@ -1,28 +1,32 @@
 /**
  * sdk/core/middleware.ts
- * 
- * Main orchestration layer for Sack Money SDK.
- * 
+ *
+ * Main orchestration layer for Guardian Protocol SDK.
+ *
  * This module implements the "Cryptographic Airlock" — the core innovation
  * that separates Intent from Execution.
- * 
+ *
+ * VDF Trigger: ML Bot flag ONLY
+ * When ML bot flags a transaction as suspicious, VDF is required.
+ * Guardians can bypass VDF by voting to approve.
+ *
  * Flow:
  *   1. Capture: SDK intercepts user's intent (swap, bridge, etc.)
- *   2. Route Detection: Determine if same-chain (Uniswap) or cross-chain (LI.FI)
- *   3. Parallel Trigger:
- *      - VDF Worker: Starts time-lock computation (if high-value)
+ *   2. ML Bot Analysis: Check if transaction is flagged
+ *   3. Route Detection: Determine if same-chain or cross-chain (LI.FI)
+ *   4. Parallel Trigger:
+ *      - VDF Worker: Starts time-lock computation (if ML flagged)
  *      - Guardian Network: Receives alert, starts ZK voting
- *   4. Polling: SDK polls both until ready
- *   5. Aggregation: Combine VDF proof + FROST signature
- *   6. Execution: Submit to SecurityMiddleware contract
+ *   5. Polling: SDK polls both until ready
+ *   6. Aggregation: Combine VDF proof + FROST signature
+ *   7. Execution: Submit to SecurityMiddleware contract
  */
 
 import { ethers } from 'ethers';
-import { SecurityContract, SecurityConfig, ExecuteParams, VDFProof, FrostSignature } from './contract';
+import { SecurityContract, SecurityConfig, VDFProof, FrostSignature } from './contract';
 import { VDFClient, VDFRequest, VDFStatus } from './VDF';
-import { ZKVoteClient, VoteStatus, TransactionProposal } from './ZK';
-import { LiFiClient, LiFiConfig, Route, ExecutionStatus as LiFiStatus, LIFI_DIAMOND } from './lifi';
-import { AMOUNT_THRESHOLDS } from './constants';
+import { ZKVoteClient, VoteStatus } from './ZK';
+import { LiFiClient, LiFiConfig, Route } from './lifi';
 
 // ─── Types ───
 
@@ -30,7 +34,7 @@ export interface MiddlewareConfig {
   security: SecurityConfig;
   vdfWorkerUrl: string;
   guardianApiUrl: string;
-  lifiConfig?: Partial<LiFiConfig>;  // LI.FI API configuration
+  lifiConfig?: Partial<LiFiConfig>;
   provider: ethers.Provider;
   signer?: ethers.Signer;
 }
@@ -40,9 +44,10 @@ export interface TransactionIntent {
   target: string;                   // Target contract address
   data: string;                     // Encoded calldata
   value: bigint;                    // ETH value
-  amount: bigint;                   // Token amount (for threshold calc)
+  amount: bigint;                   // Token amount (for display)
   sourceChain: number;              // Source chain ID
   destChain?: number;               // Destination chain (for bridges)
+  mlBotFlagged: boolean;            // ML bot flagged as suspicious
   metadata?: {
     protocol: 'uniswap' | 'lifi' | 'custom';
     tokenIn?: string;
@@ -57,7 +62,7 @@ export interface ExecutionResult {
   receipt: ethers.TransactionReceipt;
   vdfProof: VDFProof;
   frostSignature: FrostSignature;
-  executionTime: number;            // Total time in ms
+  executionTime: number;
 }
 
 export interface ExecutionProgress {
@@ -98,16 +103,10 @@ export class SecurityMiddleware {
 
   // ─── Cross-Chain Detection ───
 
-  /**
-   * Check if intent requires cross-chain routing via LI.FI.
-   */
   isCrossChain(intent: TransactionIntent): boolean {
     return !!(intent.destChain && intent.destChain !== intent.sourceChain);
   }
 
-  /**
-   * Check if intent is a bridge operation.
-   */
   isBridge(intent: TransactionIntent): boolean {
     return intent.type === 'bridge' || this.isCrossChain(intent);
   }
@@ -115,10 +114,6 @@ export class SecurityMiddleware {
   /**
    * Execute a transaction through the security middleware.
    * This is the main entry point for dApps.
-   * 
-   * @param intent - The transaction intent
-   * @param onProgress - Optional callback for progress updates
-   * @returns Execution result with proofs
    */
   async executeSecurely(
     intent: TransactionIntent,
@@ -136,15 +131,20 @@ export class SecurityMiddleware {
 
     this.emitProgress(onProgress, {
       stage: 'submitted',
-      message: this.isCrossChain(intent) 
+      message: this.isCrossChain(intent)
         ? 'Cross-chain transfer submitted for security review'
         : 'Transaction submitted for security review',
     });
 
-    // Step 1: Determine what's required
-    // Cross-chain = always require VDF (higher risk)
-    const requiresVDF = this.isCrossChain(intent) || this.vdfClient.isVDFRequired(routedIntent.amount);
-    const requiresVoting = true; // Always require guardian oversight
+    // Step 1: Determine what's required based on ML bot flag
+    const requiresVDF = this.vdfClient.isVDFRequired(routedIntent.mlBotFlagged);
+
+    if (requiresVDF) {
+      this.emitProgress(onProgress, {
+        stage: 'submitted',
+        message: 'ML Bot flagged transaction as suspicious - VDF required (30 min delay)',
+      });
+    }
 
     // Step 2: Start parallel processes
     const [vdfProof, frostSignature] = await Promise.all([
@@ -212,15 +212,10 @@ export class SecurityMiddleware {
 
   // ─── LI.FI Cross-Chain Routing ───
 
-  /**
-   * Route intent through LI.FI if cross-chain.
-   * Converts high-level intent to actual transaction data.
-   */
   private async routeIntent(
     intent: TransactionIntent,
     onProgress?: (progress: ExecutionProgress) => void,
   ): Promise<TransactionIntent> {
-    // Same-chain: return as-is
     if (!this.isCrossChain(intent)) {
       return intent;
     }
@@ -230,7 +225,6 @@ export class SecurityMiddleware {
       message: 'Fetching optimal cross-chain route via LI.FI...',
     });
 
-    // Get quote from LI.FI
     const route = await this.lifiClient.getQuote({
       fromChain: intent.sourceChain,
       toChain: intent.destChain!,
@@ -241,7 +235,6 @@ export class SecurityMiddleware {
       slippage: intent.metadata?.slippage || 0.005,
     });
 
-    // Build transaction
     const tx = await this.lifiClient.buildTransaction(route);
 
     this.emitProgress(onProgress, {
@@ -249,24 +242,18 @@ export class SecurityMiddleware {
       message: `Route found: ${route.steps.map(s => s.tool).join(' → ')} (Gas: $${route.gasCostUSD})`,
     });
 
-    // Return modified intent with LI.FI calldata
     return {
       ...intent,
-      target: tx.to,                         // LI.FI Diamond
-      data: tx.data,                         // LI.FI calldata
-      value: BigInt(tx.value),               // Native token for bridge
+      target: tx.to,
+      data: tx.data,
+      value: BigInt(tx.value),
       metadata: {
         ...intent.metadata,
         protocol: 'lifi',
-        lifiRoute: route,                    // Store route for reference
       } as any,
     };
   }
 
-  /**
-   * Get LI.FI quote without executing.
-   * Useful for previewing cross-chain routes.
-   */
   async getQuote(
     fromChain: number,
     toChain: number,
@@ -286,9 +273,6 @@ export class SecurityMiddleware {
     });
   }
 
-  /**
-   * Get multiple route options for comparison.
-   */
   async getRoutes(
     fromChain: number,
     toChain: number,
@@ -310,6 +294,7 @@ export class SecurityMiddleware {
 
   /**
    * Handle VDF proof generation/retrieval.
+   * Only triggered when ML bot flags transaction.
    */
   private async handleVDF(
     intent: TransactionIntent,
@@ -323,9 +308,9 @@ export class SecurityMiddleware {
 
     const request: VDFRequest = {
       txHash,
-      amount: intent.amount,
       chainId: intent.sourceChain,
       sender: await this.getSenderAddress(),
+      mlBotFlagged: true,
     };
 
     return this.vdfClient.getProof(request, (status) => {
@@ -345,7 +330,6 @@ export class SecurityMiddleware {
     txHash: string,
     onProgress?: (progress: ExecutionProgress) => void,
   ): Promise<FrostSignature> {
-    // Submit for Guardian review
     const proposalId = await this.zkClient.submitForReview({
       txHash,
       target: intent.target,
@@ -356,7 +340,6 @@ export class SecurityMiddleware {
       amount: intent.amount,
     });
 
-    // Wait for voting to complete
     const voteResult = await this.zkClient.waitForVoteResult(proposalId, (status) => {
       this.emitProgress(onProgress, {
         stage: 'voting-pending',
@@ -376,32 +359,23 @@ export class SecurityMiddleware {
     return voteResult.frostSignature;
   }
 
-  /**
-   * Pre-flight checks before starting the security flow.
-   */
   private async preflight(intent: TransactionIntent): Promise<void> {
-    // Check if protocol is paused
     const isPaused = await this.contract.isPaused();
     if (isPaused) {
       throw new Error('Protocol is currently paused due to security alert');
     }
 
-    // Check if sender is blacklisted
     const sender = await this.getSenderAddress();
     const isBlacklisted = await this.contract.isBlacklisted(sender);
     if (isBlacklisted) {
       throw new Error('Sender address is blacklisted');
     }
 
-    // Validate intent
     if (!intent.target || intent.target === ethers.ZeroAddress) {
       throw new Error('Invalid target address');
     }
   }
 
-  /**
-   * Generate a unique hash for this transaction intent.
-   */
   private generateTxHash(intent: TransactionIntent): string {
     return ethers.keccak256(
       ethers.AbiCoder.defaultAbiCoder().encode(
@@ -411,9 +385,6 @@ export class SecurityMiddleware {
     );
   }
 
-  /**
-   * Get the signer's address.
-   */
   private async getSenderAddress(): Promise<string> {
     if (!this.config.signer) {
       throw new Error('Signer required');
@@ -421,9 +392,6 @@ export class SecurityMiddleware {
     return this.config.signer.getAddress();
   }
 
-  /**
-   * Emit progress update if callback provided.
-   */
   private emitProgress(
     callback: ((progress: ExecutionProgress) => void) | undefined,
     progress: ExecutionProgress,
@@ -435,35 +403,12 @@ export class SecurityMiddleware {
 
   // ─── Query Methods ───
 
-  /**
-   * Get current security state.
-   */
   async getSecurityState() {
     return this.contract.getSecurityState();
   }
 
-  /**
-   * Check if an address is blacklisted.
-   */
   async isBlacklisted(address: string) {
     return this.contract.isBlacklisted(address);
-  }
-
-  /**
-   * Calculate required delay for an amount.
-   */
-  async calculateDelay(amount: bigint) {
-    return this.contract.calculateRequiredDelay(amount);
-  }
-
-  /**
-   * Get risk level for an amount.
-   */
-  getRiskLevel(amount: bigint): 'low' | 'medium' | 'high' | 'critical' {
-    if (amount >= AMOUNT_THRESHOLDS.CRITICAL) return 'critical';
-    if (amount >= AMOUNT_THRESHOLDS.HIGH) return 'high';
-    if (amount >= AMOUNT_THRESHOLDS.MEDIUM) return 'medium';
-    return 'low';
   }
 }
 

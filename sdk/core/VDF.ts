@@ -1,18 +1,24 @@
 /**
  * sdk/core/VDF.ts
- * 
+ *
  * VDF (Verifiable Delay Function) module for time-lock proofs.
- * 
- * The VDF enforces a mandatory time delay before high-value transactions
- * can execute. This gives Guardians time to review and potentially block
- * malicious transactions.
- * 
+ *
+ * Trigger: ML Bot flag ONLY
+ * When ML bot detects suspicious transaction patterns, it flags the tx.
+ * Flagged transactions require VDF proof (30 min delay) before execution.
+ * Guardians can bypass VDF by approving the transaction.
+ *
  * Flow:
- *   1. SDK calculates required iterations based on tx amount
- *   2. SDK sends request to VDF Worker (off-chain server)
- *   3. Worker computes sequential hash chain (cannot be parallelized)
- *   4. SDK polls until proof is ready
+ *   1. ML bot analyzes transaction and flags if suspicious
+ *   2. If flagged, SDK requests VDF proof from worker
+ *   3. Worker computes sequential hash chain (30 min, cannot be parallelized)
+ *   4. SDK polls until proof is ready OR guardians bypass
  *   5. Proof is submitted to SecurityMiddleware for on-chain verification
+ *
+ * Alignment with lib/vdf:
+ *   - Both use mlBotFlagged boolean as trigger
+ *   - Both use 30 min / 54M iterations when flagged
+ *   - Use adapters.ts to convert Buffer ↔ string types
  */
 
 import { VDFProof } from './contract';
@@ -20,7 +26,8 @@ import {
   VDF_WORKER_URL,
   VDF_POLL_INTERVAL,
   VDF_TIMEOUT,
-  VDF_ITERATION_TIERS,
+  VDF_ITERATIONS,
+  VDF_DELAY_SECONDS,
 } from './constants';
 
 // ─── Types ───
@@ -33,13 +40,13 @@ export interface VDFConfig {
 
 export interface VDFRequest {
   txHash: string;                 // Unique identifier for this tx
-  amount: bigint;                 // Transaction amount (determines iterations)
   chainId: number;                // Source chain
   sender: string;                 // Transaction sender
+  mlBotFlagged: boolean;          // ML bot flagged as suspicious
 }
 
 export interface VDFStatus {
-  status: 'pending' | 'computing' | 'ready' | 'failed';
+  status: 'pending' | 'computing' | 'ready' | 'failed' | 'bypassed';
   progress: number;               // 0-100 percentage
   estimatedTimeLeft: number;      // Seconds remaining
   proof?: VDFProof;               // Available when status === 'ready'
@@ -64,22 +71,22 @@ export class VDFClient {
   }
 
   /**
-   * Calculate required iterations based on transaction amount.
+   * Check if VDF is required based on ML bot flag.
+   * Simple: flagged = VDF required, not flagged = no VDF.
    */
-  calculateIterations(amount: bigint): number {
-    for (const tier of VDF_ITERATION_TIERS) {
-      if (amount >= tier.threshold) {
-        return tier.iterations;
-      }
-    }
-    return 0;
+  isVDFRequired(mlBotFlagged: boolean): boolean {
+    return mlBotFlagged;
   }
 
   /**
-   * Check if VDF is required for this amount.
+   * Get VDF parameters (fixed when ML bot flags).
    */
-  isVDFRequired(amount: bigint): boolean {
-    return this.calculateIterations(amount) > 0;
+  getVDFParams(): { iterations: number; delaySeconds: number; delayFormatted: string } {
+    return {
+      iterations: VDF_ITERATIONS,
+      delaySeconds: VDF_DELAY_SECONDS,
+      delayFormatted: '30 minutes',
+    };
   }
 
   /**
@@ -87,10 +94,8 @@ export class VDFClient {
    * Returns immediately — use pollStatus() or waitForProof() to get result.
    */
   async requestProof(request: VDFRequest): Promise<string> {
-    const iterations = this.calculateIterations(request.amount);
-    
-    if (iterations === 0) {
-      throw new Error('VDF not required for this amount');
+    if (!request.mlBotFlagged) {
+      throw new Error('VDF not required: transaction not flagged by ML bot');
     }
 
     const response = await fetch(`${this.config.workerUrl}/vdf/request`, {
@@ -98,10 +103,10 @@ export class VDFClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         txHash: request.txHash,
-        amount: request.amount.toString(),
         chainId: request.chainId,
         sender: request.sender,
-        iterations,
+        iterations: VDF_ITERATIONS,
+        mlBotFlagged: true,
       }),
     });
 
@@ -129,7 +134,7 @@ export class VDFClient {
 
   /**
    * Wait for VDF proof to be ready.
-   * Polls until complete or timeout.
+   * Polls until complete, bypassed, or timeout.
    */
   async waitForProof(jobId: string, onProgress?: (status: VDFStatus) => void): Promise<VDFProof> {
     const startTime = Date.now();
@@ -143,6 +148,11 @@ export class VDFClient {
 
       if (status.status === 'ready' && status.proof) {
         return status.proof;
+      }
+
+      if (status.status === 'bypassed') {
+        // Guardian approved - return zero proof
+        return this.createZeroProof();
       }
 
       if (status.status === 'failed') {
@@ -162,7 +172,7 @@ export class VDFClient {
    * Convenience method for simple usage.
    */
   async getProof(
-    request: VDFRequest, 
+    request: VDFRequest,
     onProgress?: (status: VDFStatus) => void,
   ): Promise<VDFProof> {
     const jobId = await this.requestProof(request);
@@ -173,15 +183,13 @@ export class VDFClient {
    * Generate a mock proof for testing (skips actual computation).
    * Only available when worker is in dev mode.
    */
-  async getMockProof(request: VDFRequest): Promise<VDFProof> {
-    const iterations = this.calculateIterations(request.amount);
-
+  async getMockProof(txHash: string): Promise<VDFProof> {
     const response = await fetch(`${this.config.workerUrl}/vdf/mock`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        txHash: request.txHash,
-        iterations,
+        txHash,
+        iterations: VDF_ITERATIONS,
       }),
     });
 
@@ -193,7 +201,8 @@ export class VDFClient {
   }
 
   /**
-   * Create a zero-proof for transactions that don't require VDF.
+   * Create a zero-proof for transactions that don't require VDF
+   * or when guardians bypass the VDF.
    */
   createZeroProof(): VDFProof {
     return {

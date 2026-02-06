@@ -87,6 +87,29 @@ export {
   type ExecutionStatus,
 } from './core/lifi';
 
+// ─── Cross-Chain Sync ───
+
+export {
+  SecurityEventEncoder,
+  CrossChainBroadcaster,
+  CrossChainSync,
+  createBroadcaster,
+  createCrossChainSync,
+  createSecurityEvent,
+  SUPPORTED_CHAINS,
+  type SecurityEvent,
+  type SecurityEventType,
+  type Severity,
+  type ActionParameters,
+  type PropagationStatus,
+  type EventPropagationResult,
+  type ChainConfig,
+  type ChainSecurityState,
+  type BroadcasterConfig,
+  type SubscriptionConfig,
+  type EventCallback,
+} from './core/crosschain';
+
 // Re-export shared types (single source of truth)
 export {
   VOTE_VALUES,
@@ -113,8 +136,9 @@ export {
   GUARDIAN_API_URL_TESTNET,
   LIFI_API_URL,
   LIFI_INTEGRATOR_ID,
-  VDF_ITERATION_TIERS,
-  AMOUNT_THRESHOLDS,
+  VDF_ITERATIONS,
+  VDF_DELAY_SECONDS,
+  ML_BOT_THRESHOLD,
 } from './core/constants';
 
 // ─── Version ───
