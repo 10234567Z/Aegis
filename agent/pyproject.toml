@@ -1,7 +1,21 @@
 [project]
 name = "agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "DeFiGuardian ML Agent - Fraud detection API"
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = []
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0.0",
+    "xgboost>=2.0.0",
+    "pandas>=2.0.0",
+    "numpy>=1.26.0",
+    "scikit-learn>=1.4.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+shap = ["shap>=0.44.0"]
+
+[project.scripts]
+agent = "agent.main:main"
