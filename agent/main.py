@@ -4,10 +4,12 @@ DeFiGuardian ML Agent - Flask API for fraud detection.
 Routes:
     POST /analyze          - Condensed response (score + verdict)
     POST /analyze/detailed - Full response with SHAP explanations
+    POST /review           - Full flow: ML analysis + Guardian Network routing
     GET  /health           - Health check
 """
 
 import os
+import requests
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
@@ -22,6 +24,9 @@ app = Flask(__name__)
 # Initialize clients
 etherscan = EtherscanClient()
 detector = FraudDetector()
+
+# Threshold for flagging (score > 50 = flagged)
+ML_FLAG_THRESHOLD = 50.0
 
 
 @app.route("/health", methods=["GET"])
@@ -198,6 +203,127 @@ def analyze_detailed():
                 "account_age_days": round(account_age_mins / 1440, 2) if account_age_mins else 0,
                 "unique_counterparties": features.get("Unique Sent To Addresses", 0) + features.get("Unique Received From Addresses", 0),
             },
+        })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/review", methods=["POST"])
+def review():
+    """
+    Full transaction review flow: ML analysis + Guardian Network routing.
+    
+    This is the main endpoint called by the SDK. It:
+    1. Analyzes the sender wallet for fraud patterns
+    2. Forwards the proposal to the protocol's Guardian Network
+    3. Returns combined ML verdict + Guardian voting result
+    
+    Request body:
+        {
+            "guardianApiUrl": "https://...",  // Protocol's Guardian Network URL
+            "proposal": {
+                "txHash": "0x...",
+                "sender": "0x...",
+                "target": "0x...",
+                "value": "1000000000000000000",
+                "data": "0x...",
+                "chainId": 1,
+                "amount": "1000000000000000000"
+            }
+        }
+    
+    Response:
+        {
+            "proposalId": "0x...",
+            "mlAnalysis": {
+                "score": 45.2,
+                "verdict": "suspicious",
+                "flagged": false
+            },
+            "guardianStatus": {
+                "submitted": true,
+                "message": "Proposal submitted to Guardian Network"
+            }
+        }
+    """
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"error": "Missing request body"}), 400
+    
+    guardian_url = data.get("guardianApiUrl")
+    proposal = data.get("proposal")
+    
+    if not guardian_url:
+        return jsonify({"error": "Missing 'guardianApiUrl'"}), 400
+    if not proposal:
+        return jsonify({"error": "Missing 'proposal'"}), 400
+    
+    sender = proposal.get("sender")
+    if not sender:
+        return jsonify({"error": "Missing 'sender' in proposal"}), 400
+    
+    try:
+        # Step 1: ML Analysis on sender wallet
+        eth_txs, token_txs, balance = etherscan.fetch_all(sender)
+        features = compute_features(sender, eth_txs, token_txs, balance)
+        prediction = detector.predict(features)
+        
+        score = prediction["fraud_probability"] * 100
+        flagged = score >= ML_FLAG_THRESHOLD
+        
+        if score < 25:
+            verdict = "safe"
+        elif score < 60:
+            verdict = "suspicious"
+        else:
+            verdict = "dangerous"
+        
+        ml_analysis = {
+            "score": round(score, 2),
+            "verdict": verdict,
+            "flagged": flagged,
+        }
+        
+        # Step 2: Forward to Guardian Network
+        guardian_payload = {
+            "txHash": proposal.get("txHash"),
+            "sender": sender,
+            "target": proposal.get("target"),
+            "value": proposal.get("value"),
+            "data": proposal.get("data"),
+            "chainId": proposal.get("chainId"),
+            "amount": proposal.get("amount"),
+            "mlScore": score,
+            "mlFlagged": flagged,
+        }
+        
+        try:
+            guardian_response = requests.post(
+                f"{guardian_url}/proposals/submit",
+                json=guardian_payload,
+                timeout=10,
+            )
+            guardian_response.raise_for_status()
+            guardian_data = guardian_response.json()
+            
+            guardian_status = {
+                "submitted": True,
+                "proposalId": guardian_data.get("proposalId"),
+                "message": "Proposal submitted to Guardian Network",
+            }
+        except requests.exceptions.RequestException as e:
+            guardian_status = {
+                "submitted": False,
+                "error": str(e),
+                "message": "Failed to reach Guardian Network",
+            }
+        
+        return jsonify({
+            "proposalId": guardian_status.get("proposalId"),
+            "mlAnalysis": ml_analysis,
+            "guardianStatus": guardian_status,
         })
     
     except Exception as e:
