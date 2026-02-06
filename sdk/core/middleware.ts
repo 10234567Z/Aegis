@@ -34,9 +34,17 @@ export interface MiddlewareConfig {
   security: SecurityConfig;
   vdfWorkerUrl: string;
   guardianApiUrl: string;
+  agentApiUrl: string;              // ML Bot Agent API
   lifiConfig?: Partial<LiFiConfig>;
   provider: ethers.Provider;
   signer?: ethers.Signer;
+}
+
+export interface AgentAnalysis {
+  score: number;
+  flagged: boolean;
+  proposalId?: string;              // If flagged, Guardian proposal ID
+  verdict: string;
 }
 
 export interface TransactionIntent {
@@ -47,7 +55,7 @@ export interface TransactionIntent {
   amount: bigint;                   // Token amount (for display)
   sourceChain: number;              // Source chain ID
   destChain?: number;               // Destination chain (for bridges)
-  mlBotFlagged: boolean;            // ML bot flagged as suspicious
+  mlBotFlagged?: boolean;           // ML bot flagged (auto-detected if omitted)
   metadata?: {
     protocol: 'uniswap' | 'lifi' | 'custom';
     tokenIn?: string;
@@ -101,6 +109,60 @@ export class SecurityMiddleware {
     this.lifiClient = new LiFiClient(config.lifiConfig);
   }
 
+  // ─── Agent Analysis ───
+
+  /**
+   * Call ML Agent to analyze transaction.
+   * Agent returns score, flag status, and starts Guardian voting if flagged.
+   */
+  async analyzeWithAgent(
+    sender: string,
+    target: string,
+    value: bigint,
+    data: string,
+    chainId: number,
+    txHash?: string,
+    amount?: bigint,
+  ): Promise<AgentAnalysis> {
+    try {
+      const response = await fetch(`${this.config.agentApiUrl}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          guardianApiUrl: this.config.guardianApiUrl,
+          proposal: {
+            txHash: txHash ?? this.generateTxHash({ target, data, value, amount: amount ?? value } as any),
+            sender,
+            target,
+            value: value.toString(),
+            data,
+            chainId,
+            amount: (amount ?? value).toString(),
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Agent analysis failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return {
+        score: result.mlAnalysis?.score ?? 0,
+        flagged: result.mlAnalysis?.flagged ?? false,
+        proposalId: result.proposalId,
+        verdict: result.mlAnalysis?.verdict ?? 'unknown',
+      };
+    } catch (error) {
+      console.warn('Agent analysis failed, defaulting to safe:', error);
+      return {
+        score: 0,
+        flagged: false,
+        verdict: 'agent_error',
+      };
+    }
+  }
+
   // ─── Cross-Chain Detection ───
 
   isCrossChain(intent: TransactionIntent): boolean {
@@ -114,10 +176,14 @@ export class SecurityMiddleware {
   /**
    * Execute a transaction through the security middleware.
    * This is the main entry point for dApps.
+   *
+   * If sender is provided and intent.mlBotFlagged is undefined,
+   * we'll call the ML Agent for automatic analysis.
    */
   async executeSecurely(
     intent: TransactionIntent,
     onProgress?: (progress: ExecutionProgress) => void,
+    sender?: string,
   ): Promise<ExecutionResult> {
     const startTime = Date.now();
 
@@ -126,6 +192,34 @@ export class SecurityMiddleware {
 
     // Step 0.5: Route through LI.FI for cross-chain
     const routedIntent = await this.routeIntent(intent, onProgress);
+
+    // Step 0.6: Auto-analyze with ML Agent if not already flagged
+    let agentAnalysis: AgentAnalysis | undefined;
+    if (sender && routedIntent.mlBotFlagged === undefined) {
+      this.emitProgress(onProgress, {
+        stage: 'submitted',
+        message: 'Analyzing transaction with ML Agent...',
+      });
+
+      agentAnalysis = await this.analyzeWithAgent(
+        sender,
+        routedIntent.target,
+        routedIntent.value,
+        routedIntent.data,
+        routedIntent.sourceChain,
+        undefined, // txHash generated later
+        routedIntent.amount,
+      );
+
+      routedIntent.mlBotFlagged = agentAnalysis.flagged;
+      
+      this.emitProgress(onProgress, {
+        stage: 'submitted',
+        message: agentAnalysis.flagged
+          ? `ML Agent flagged transaction (score: ${agentAnalysis.score.toFixed(1)})`
+          : `Transaction passed ML analysis (score: ${agentAnalysis.score.toFixed(1)})`,
+      });
+    }
 
     const txHash = this.generateTxHash(routedIntent);
 

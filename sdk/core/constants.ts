@@ -43,11 +43,17 @@ export const VDF_WORKER_URL = 'https://vdf.sackmoney.io';
 /** Guardian API URL (mainnet) */
 export const GUARDIAN_API_URL = 'https://guardians.sackmoney.io';
 
+/** Agent API URL (mainnet) - ML analysis + Guardian routing */
+export const AGENT_API_URL = 'https://agent.sackmoney.io';
+
 /** VDF Worker service URL (testnet) */
 export const VDF_WORKER_URL_TESTNET = 'https://vdf-testnet.sackmoney.io';
 
 /** Guardian API URL (testnet) */
 export const GUARDIAN_API_URL_TESTNET = 'https://guardians-testnet.sackmoney.io';
+
+/** Agent API URL (testnet) */
+export const AGENT_API_URL_TESTNET = 'https://agent-testnet.sackmoney.io';
 
 // ─── LI.FI Integration ───
 

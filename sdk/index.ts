@@ -16,10 +16,12 @@
  *   },
  *   vdfWorkerUrl: 'https://vdf.sackmoney.io',
  *   guardianApiUrl: 'https://guardians.sackmoney.io',
+ *   agentApiUrl: 'https://agent.sackmoney.io',
  *   provider,
  *   signer,
  * });
  * 
+ * // Execute with auto ML analysis (pass sender address)
  * const result = await middleware.executeSecurely({
  *   type: 'swap',
  *   target: UNISWAP_ROUTER,
@@ -29,7 +31,7 @@
  *   sourceChain: 1,
  * }, (progress) => {
  *   console.log(progress.message);
- * });
+ * }, senderAddress);
  * ```
  */
 
@@ -42,6 +44,7 @@ export {
   type TransactionIntent,
   type ExecutionResult,
   type ExecutionProgress,
+  type AgentAnalysis,
 } from './core/middleware';
 
 export {
@@ -132,8 +135,10 @@ export {
   PROTOCOL_ADDRESSES,
   VDF_WORKER_URL,
   GUARDIAN_API_URL,
+  AGENT_API_URL,
   VDF_WORKER_URL_TESTNET,
   GUARDIAN_API_URL_TESTNET,
+  AGENT_API_URL_TESTNET,
   LIFI_API_URL,
   LIFI_INTEGRATOR_ID,
   VDF_ITERATIONS,
@@ -153,8 +158,10 @@ import {
   PROTOCOL_ADDRESSES,
   VDF_WORKER_URL,
   GUARDIAN_API_URL,
+  AGENT_API_URL,
   VDF_WORKER_URL_TESTNET,
   GUARDIAN_API_URL_TESTNET,
+  AGENT_API_URL_TESTNET,
 } from './core/constants';
 
 /**
@@ -178,6 +185,7 @@ export function createMainnetMiddleware(
     },
     vdfWorkerUrl: VDF_WORKER_URL,
     guardianApiUrl: GUARDIAN_API_URL,
+    agentApiUrl: AGENT_API_URL,
     provider,
     signer,
   });
@@ -204,6 +212,7 @@ export function createTestnetMiddleware(
     },
     vdfWorkerUrl: VDF_WORKER_URL_TESTNET,
     guardianApiUrl: GUARDIAN_API_URL_TESTNET,
+    agentApiUrl: AGENT_API_URL_TESTNET,
     provider,
     signer,
   });
@@ -230,6 +239,7 @@ export function createLocalMiddleware(
     },
     vdfWorkerUrl: 'http://localhost:3001',
     guardianApiUrl: 'http://localhost:3002',
+    agentApiUrl: 'http://localhost:5001',
     provider,
     signer,
   });
