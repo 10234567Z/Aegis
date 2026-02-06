@@ -1,23 +1,24 @@
 /**
  * Use Case 2: Big TX Slow Pass (Same-Chain)
  *
- * Demonstrates: A large transaction (> $100K / 50 ETH) that passes via guardian approval.
+ * Demonstrates: A large transaction flagged by ML Bot that passes via guardian approval.
+ * - ML Bot: Score 75/100 → FLAGGED (exceeds threshold 70)
  * - Guardian voting: MANDATORY (7 approve, 2 reject, 1 abstain)
- * - VDF: TRIGGERED (amount exceeds threshold)
+ * - VDF: TRIGGERED (ML Bot flagged) → 30 min delay, 300M iterations
  * - VDF Outcome: BYPASSED (guardian approval came first)
  * - Result: PASS (via guardian approval, not VDF completion)
  *
  * Flow:
  * 1. User submits 500 ETH withdrawal (Ethereum → Ethereum)
- * 2. Amount check: 500 ETH > 50 ETH threshold → VDF triggered
- * 3. VDF computation starts (would take ~5 min for 500 ETH)
+ * 2. ML Bot analyzes transaction → score 75/100 (suspicious) → FLAGGED
+ * 3. VDF computation starts (30 min fixed delay)
  * 4. Guardian voting happens IN PARALLEL:
  *    - All 10 guardians submit ZK commitments
  *    - All 10 guardians reveal votes with ZK proofs
  *    - Tally: 7 approve, 2 reject, 1 abstain → Threshold met
  * 5. FROST signature created by 7 approving guardians
  * 6. VDF BYPASSED - guardian approval overrides VDF wait
- * 7. Transaction executed (user saved ~5 min of VDF wait)
+ * 7. Transaction executed (user saved 30 min of VDF wait)
  */
 
 import { ethers } from 'ethers';
@@ -42,11 +43,13 @@ import {
   getChainName,
   isVDFRequired,
   isApprovalReached,
-  VDF_THRESHOLD,
+  simulateMLBotAnalysis,
+  ML_BOT_THRESHOLD,
+  VDF_ITERATIONS,
+  VDF_DELAY_SECONDS,
   GUARDIAN_COUNT,
   GUARDIAN_THRESHOLD,
   runScript,
-  VDF_ITERATION_TIERS,
 } from './shared';
 
 import {
@@ -73,24 +76,6 @@ const SCENARIO = {
     abstain: 1,
   },
 };
-
-// ─── VDF Helpers ───
-
-function getVDFIterations(amount: bigint): number {
-  for (const tier of VDF_ITERATION_TIERS) {
-    if (amount >= tier.threshold) {
-      return tier.iterations;
-    }
-  }
-  return 0;
-}
-
-function estimateVDFDuration(iterations: number): string {
-  // ~30,000 squarings per second
-  const seconds = iterations / 30000;
-  if (seconds < 60) return `${seconds.toFixed(0)} seconds`;
-  return `${(seconds / 60).toFixed(1)} minutes`;
-}
 
 // ─── Main Script ───
 
@@ -125,23 +110,24 @@ async function main() {
   // ─── Step 2: Security Checks ───
   printStep(2, 'Security Analysis');
 
+  // ML Bot analysis
+  printSubStep('Running ML Bot analysis...');
+  const mlAnalysis = simulateMLBotAnalysis({ score: 75, verdict: 'suspicious' });
+  printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (suspicious pattern)`);
+  printKeyValue('ML Bot Verdict', mlAnalysis.verdict);
+  printKeyValue('Flag Threshold', `${ML_BOT_THRESHOLD}/100`);
+  printWarning(`Transaction FLAGGED by ML Bot (score ${mlAnalysis.score} > threshold ${ML_BOT_THRESHOLD})`);
+
   // Check VDF requirement
-  const vdfRequired = isVDFRequired(tx.amount);
-  printSubStep(`Amount threshold check: ${formatEth(tx.amount)} vs ${formatEth(VDF_THRESHOLD)}`);
+  const vdfRequired = isVDFRequired(mlAnalysis.flagged);
 
   if (vdfRequired) {
-    printWarning('VDF TRIGGERED - Amount exceeds $100K threshold');
-    const iterations = getVDFIterations(tx.amount);
-    printKeyValue('VDF Iterations', iterations.toLocaleString());
-    printKeyValue('Estimated VDF Duration', estimateVDFDuration(iterations));
+    printWarning('VDF TRIGGERED - ML Bot flagged transaction');
+    printKeyValue('VDF Iterations', VDF_ITERATIONS.toLocaleString());
+    printKeyValue('VDF Delay', `${VDF_DELAY_SECONDS / 60} minutes (fixed)`);
   } else {
-    printSuccess('VDF NOT REQUIRED - Amount below threshold');
+    printSuccess('VDF NOT REQUIRED - ML Bot score below threshold');
   }
-
-  // Simulated ML bot analysis
-  printSubStep('ML Bot analysis: Large amount, pattern uncertain');
-  printKeyValue('ML Bot Score', '45/100 (medium suspicion)');
-  printInfo('Transaction flagged for REVIEW (amount-based, not pattern-based)');
 
   printDivider();
 
@@ -149,11 +135,10 @@ async function main() {
   printStep(3, 'VDF Time-Lock Initiated');
 
   if (vdfRequired) {
-    const iterations = getVDFIterations(tx.amount);
     printSubStep('VDF computation starting on protocol worker...');
     printKeyValue('Challenge', formatBytes32(tx.txHash));
-    printKeyValue('Iterations', iterations.toLocaleString());
-    printKeyValue('Expected completion', estimateVDFDuration(iterations));
+    printKeyValue('Iterations', VDF_ITERATIONS.toLocaleString());
+    printKeyValue('Expected completion', `${VDF_DELAY_SECONDS / 60} minutes`);
     printInfo('VDF runs IN PARALLEL with guardian voting');
     printInfo('If guardians approve first, VDF will be bypassed');
   }
@@ -260,8 +245,7 @@ async function main() {
   printKeyValue('Iterations', '0 (bypassed)');
   printSuccess('VDF bypassed via guardian approval');
 
-  const estimatedSavings = estimateVDFDuration(getVDFIterations(tx.amount));
-  printInfo(`User saved ${estimatedSavings} of waiting time`);
+  printInfo(`User saved ${VDF_DELAY_SECONDS / 60} minutes of waiting time`);
 
   printDivider();
 
@@ -290,11 +274,12 @@ async function main() {
   // Summary
   console.log('Summary:');
   printKeyValue('Amount', `${formatEth(tx.amount)} (${formatUSD(tx.amount)})`);
-  printKeyValue('VDF Triggered', 'Yes (amount > $100K)');
+  printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (threshold: ${ML_BOT_THRESHOLD})`);
+  printKeyValue('VDF Triggered', `Yes (ML score ${mlAnalysis.score} > threshold ${ML_BOT_THRESHOLD})`);
   printKeyValue('VDF Outcome', 'BYPASSED (guardian approval)');
   printKeyValue('Guardian Vote', `${tally.approve} approve, ${tally.reject} reject, ${tally.abstain} abstain`);
   printKeyValue('FROST Signature', 'Valid');
-  printKeyValue('Time Saved', estimatedSavings);
+  printKeyValue('Time Saved', `${VDF_DELAY_SECONDS / 60} minutes`);
   printKeyValue('Execution', 'Immediate (VDF bypassed)');
   console.log();
 }

@@ -9,12 +9,13 @@ import {
   GUARDIAN_THRESHOLD,
   REJECTION_THRESHOLD,
   VOTE_VALUES,
-  AMOUNT_THRESHOLDS,
-  VDF_ITERATION_TIERS,
+  ML_BOT_THRESHOLD,
+  VDF_ITERATIONS,
+  VDF_DELAY_SECONDS,
 } from '../../core/constants';
 
 // Re-export for convenience
-export { GUARDIAN_COUNT, GUARDIAN_THRESHOLD, REJECTION_THRESHOLD, VOTE_VALUES, AMOUNT_THRESHOLDS, VDF_ITERATION_TIERS };
+export { GUARDIAN_COUNT, GUARDIAN_THRESHOLD, REJECTION_THRESHOLD, VOTE_VALUES, ML_BOT_THRESHOLD, VDF_ITERATIONS, VDF_DELAY_SECONDS };
 
 // ─── Logging Utilities ───
 
@@ -118,12 +119,40 @@ export function generateAddress(): string {
   return ethers.Wallet.createRandom().address;
 }
 
+// ─── ML Bot Analysis ───
+
+/**
+ * Mock ML bot analysis result.
+ * Mirrors AgentAnalysis from sdk/core/middleware.ts.
+ */
+export interface MockAgentAnalysis {
+  score: number;        // 0-100 risk score
+  flagged: boolean;     // true if score > ML_BOT_THRESHOLD (70)
+  verdict: string;      // 'safe' | 'suspicious' | 'dangerous'
+}
+
+/**
+ * Simulate ML bot analysis for a transaction.
+ * In production, this calls the Agent API at /review.
+ */
+export function simulateMLBotAnalysis(params: {
+  score: number;
+  verdict?: string;
+}): MockAgentAnalysis {
+  const { score } = params;
+  const flagged = score > ML_BOT_THRESHOLD;
+  const verdict = params.verdict ?? (score <= 25 ? 'safe' : score <= 60 ? 'suspicious' : 'dangerous');
+  return { score, flagged, verdict };
+}
+
 // ─── Threshold Checks ───
 
-export const VDF_THRESHOLD = ethers.parseEther('50'); // 50 ETH (~$100K at $2000/ETH)
-
-export function isVDFRequired(amount: bigint): boolean {
-  return amount >= VDF_THRESHOLD;
+/**
+ * Check if VDF is required based on ML bot flag.
+ * Mirrors VDFClient.isVDFRequired() from sdk/core/VDF.ts.
+ */
+export function isVDFRequired(mlBotFlagged: boolean): boolean {
+  return mlBotFlagged;
 }
 
 export function isApprovalReached(approveCount: number): boolean {

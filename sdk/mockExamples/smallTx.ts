@@ -1,20 +1,22 @@
 /**
  * Use Case 1: Small TX Same-Chain Pass
  *
- * Demonstrates: A small transaction (< $100K / 50 ETH) on the same chain.
+ * Demonstrates: A small, clean transaction on the same chain.
+ * - ML Bot: Score 15/100 → NOT flagged (below threshold 70)
  * - Guardian voting: MANDATORY (8 approve, 1 reject, 1 abstain)
- * - VDF: NOT triggered (amount below threshold)
+ * - VDF: NOT triggered (ML Bot did not flag)
  * - Result: PASS (immediate execution after guardian approval)
  *
  * Flow:
  * 1. User submits 10 ETH withdrawal (Ethereum → Ethereum)
- * 2. Amount check: 10 ETH < 50 ETH threshold → No VDF needed
- * 3. Guardian voting (ZK commit-reveal):
+ * 2. ML Bot analyzes transaction → score 15/100 (safe) → NOT flagged
+ * 3. VDF not required (ML Bot did not flag)
+ * 4. Guardian voting (ZK commit-reveal):
  *    - All 10 guardians submit commitments
  *    - All 10 guardians reveal votes with ZK proofs
  *    - Tally: 8 approve, 1 reject, 1 abstain → Threshold met
- * 4. FROST signature created by 8 approving guardians
- * 5. Transaction executed immediately (no VDF wait)
+ * 5. FROST signature created by 8 approving guardians
+ * 6. Transaction executed immediately (no VDF wait)
  */
 
 import { ethers } from 'ethers';
@@ -38,7 +40,8 @@ import {
   getChainName,
   isVDFRequired,
   isApprovalReached,
-  VDF_THRESHOLD,
+  simulateMLBotAnalysis,
+  ML_BOT_THRESHOLD,
   GUARDIAN_COUNT,
   GUARDIAN_THRESHOLD,
   runScript,
@@ -103,20 +106,22 @@ async function main() {
   // ─── Step 2: Security Checks ───
   printStep(2, 'Security Analysis');
 
+  // ML Bot analysis
+  printSubStep('Running ML Bot analysis...');
+  const mlAnalysis = simulateMLBotAnalysis({ score: 15, verdict: 'safe' });
+  printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (low suspicion)`);
+  printKeyValue('ML Bot Verdict', mlAnalysis.verdict);
+  printKeyValue('Flag Threshold', `${ML_BOT_THRESHOLD}/100`);
+  printSuccess('Transaction NOT flagged by ML Bot');
+
   // Check VDF requirement
-  const vdfRequired = isVDFRequired(tx.amount);
-  printSubStep(`Amount threshold check: ${formatEth(tx.amount)} vs ${formatEth(VDF_THRESHOLD)}`);
+  const vdfRequired = isVDFRequired(mlAnalysis.flagged);
 
   if (vdfRequired) {
-    printInfo('VDF TRIGGERED - Amount exceeds threshold');
+    printInfo('VDF TRIGGERED - ML Bot flagged transaction');
   } else {
-    printSuccess('VDF NOT REQUIRED - Amount below threshold');
+    printSuccess('VDF NOT REQUIRED - ML Bot score below threshold');
   }
-
-  // Simulated ML bot analysis
-  printSubStep('ML Bot analysis: Pattern looks legitimate');
-  printKeyValue('ML Bot Score', '15/100 (low suspicion)');
-  printSuccess('Transaction flagged as CLEAN');
 
   printDivider();
 
@@ -209,7 +214,7 @@ async function main() {
   printSubStep('Verification checks:');
   printSuccess('Guardian vote passed (8/7 threshold)');
   printSuccess('FROST signature valid');
-  printSuccess('VDF not required (amount < threshold)');
+  printSuccess('VDF not required (ML Bot score below threshold)');
   printSuccess('Sender not blacklisted');
   printSuccess('Protocol not paused');
 
@@ -228,7 +233,8 @@ async function main() {
   // Summary
   console.log('Summary:');
   printKeyValue('Amount', formatEth(tx.amount));
-  printKeyValue('VDF Required', 'No (amount < $100K)');
+  printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (threshold: ${ML_BOT_THRESHOLD})`);
+  printKeyValue('VDF Required', `No (ML score ${mlAnalysis.score} < threshold ${ML_BOT_THRESHOLD})`);
   printKeyValue('Guardian Vote', `${tally.approve} approve, ${tally.reject} reject, ${tally.abstain} abstain`);
   printKeyValue('FROST Signature', 'Valid');
   printKeyValue('Execution', 'Immediate (no VDF delay)');
