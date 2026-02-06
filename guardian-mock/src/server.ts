@@ -17,8 +17,8 @@ import {
   createVotingDecisions,
   simulateFullVotingFlow,
   MockGuardianNetwork,
-} from '../../sdk/mockExamples/shared/mockGuardians';
-import { GUARDIAN_COUNT, GUARDIAN_THRESHOLD } from '../../sdk/core/constants';
+} from '../../sdk/mockExamples/shared/mockGuardians.js';
+import { GUARDIAN_COUNT, GUARDIAN_THRESHOLD } from '../../sdk/core/constants.js';
 
 const app = express();
 app.use(cors());
