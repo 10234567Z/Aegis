@@ -19,6 +19,8 @@
  *    - Tally: 1 approve, 8 reject, 1 abstain → REJECTION threshold met
  * 5. FROST rejection signature created
  * 6. Transaction BLOCKED, VDF cancelled - funds protected
+ *
+ * Supports --live mode: uses real Agent API, Guardian Mock, and VDF Worker.
  */
 
 import { ethers } from 'ethers';
@@ -54,6 +56,7 @@ import {
   runScript,
   delay,
   simulateProgress,
+  LIVE_MODE,
 } from './shared';
 
 import {
@@ -72,6 +75,9 @@ import {
   KNOWN_EXPLOIT_ADDRESSES,
   isKnownExploitAddress,
 } from './shared/mockLifi';
+
+import { ensureServices, getLiveConfig, printLiveModeBanner, LiveConfig } from './shared/liveMode';
+import { liveMLAnalysis, liveGuardianVoting, liveVDFComputation } from './shared/liveClients';
 
 // ─── Script Configuration ───
 
@@ -96,11 +102,26 @@ const SCENARIO = {
 async function main() {
   printHeader(`USE CASE 5: ${SCENARIO.name.toUpperCase()}`);
 
-  // Initialize guardian network (uses real FROST DKG)
-  printStep(0, 'Initializing Guardian Network');
-  const network = await initializeGuardianNetwork();
-  printSuccess(`${GUARDIAN_COUNT} guardians initialized with FROST keys`);
-  printKeyValue('Group Public Key', formatBytes32('0x' + network.groupPublicKey.toString('hex')));
+  // ─── Live Mode Setup ───
+  let liveConfig: LiveConfig | undefined;
+  if (LIVE_MODE) {
+    printLiveModeBanner();
+    await ensureServices();
+    liveConfig = await getLiveConfig();
+    printSuccess(`Connected to Hardhat node. Signer: ${formatAddress(liveConfig.signerAddress)}`);
+    printDivider();
+  }
+
+  // ─── Step 0: Guardian Network ───
+  printStep(0, LIVE_MODE ? 'Connecting to Guardian Network' : 'Initializing Guardian Network');
+  let network;
+  if (LIVE_MODE) {
+    printSuccess('Guardian Network running on :3001 (real FROST signing)');
+  } else {
+    network = await initializeGuardianNetwork();
+    printSuccess(`${GUARDIAN_COUNT} guardians initialized with FROST keys`);
+    printKeyValue('Group Public Key', formatBytes32('0x' + network.groupPublicKey.toString('hex')));
+  }
 
   await delay(500);
   printDivider();
@@ -114,6 +135,7 @@ async function main() {
     sourceChain: SCENARIO.sourceChain,
     destChain: SCENARIO.destChain,
     destination: SCENARIO.destination, // Blacklisted address
+    sender: LIVE_MODE ? liveConfig!.signerAddress : undefined,
   });
 
   printKeyValue('Type', 'Cross-Chain Bridge');
@@ -123,6 +145,7 @@ async function main() {
   printKeyValue('Source Chain', getChainName(tx.sourceChain));
   printKeyValue('Dest Chain', getChainName(tx.destChain!));
   printKeyValue('TX Hash', formatBytes32(tx.txHash));
+  if (LIVE_MODE) printInfo('Mode: LIVE (real APIs)');
 
   await delay(500);
   printDivider();
@@ -148,30 +171,78 @@ async function main() {
   await delay(500);
 
   // ML Bot analysis
-  printSubStep('Running ML Bot analysis...');
-  await simulateProgress('Analyzing transaction + blacklist check', 5, 2000);
-  const mlAnalysis = simulateMLBotAnalysis({ score: 99, verdict: 'dangerous' });
-  printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (CRITICAL - blacklisted destination)`);
-  printKeyValue('ML Bot Verdict', mlAnalysis.verdict);
+  let mlScore: number;
+  let mlVerdict: string;
+  let mlFlagged: boolean;
+
+  if (LIVE_MODE) {
+    printSubStep('Calling ML Agent API...');
+    const analysis = await liveMLAnalysis(liveConfig!, {
+      txHash: tx.txHash,
+      sender: tx.sender,
+      target: tx.destination,
+      value: tx.amount,
+      data: tx.data,
+      chainId: tx.sourceChain,
+      amount: tx.amount,
+    });
+    mlScore = analysis.score;
+    mlVerdict = analysis.verdict;
+    mlFlagged = analysis.flagged;
+    printKeyValue('ML Bot Score', `${mlScore}/100 (from real Agent API)`);
+  } else {
+    printSubStep('Running ML Bot analysis...');
+    await simulateProgress('Analyzing transaction + blacklist check', 5, 2000);
+    const mlAnalysis = simulateMLBotAnalysis({ score: 99, verdict: 'dangerous' });
+    mlScore = mlAnalysis.score;
+    mlVerdict = mlAnalysis.verdict;
+    mlFlagged = mlAnalysis.flagged;
+    printKeyValue('ML Bot Score', `${mlScore}/100 (CRITICAL - blacklisted destination)`);
+  }
+
+  printKeyValue('ML Bot Verdict', mlVerdict);
   printKeyValue('Flag Threshold', `${ML_BOT_THRESHOLD}/100`);
-  printFailure(`Transaction FLAGGED by ML Bot (score ${mlAnalysis.score} >= threshold ${ML_BOT_THRESHOLD})`);
+  printFailure(`Transaction FLAGGED by ML Bot (score ${mlScore} >= threshold ${ML_BOT_THRESHOLD})`);
 
   await delay(500);
 
   // Check VDF requirement
-  const vdfRequired = isVDFRequired(mlAnalysis.flagged);
+  const vdfRequired = isVDFRequired(mlFlagged);
 
   if (vdfRequired) {
     printWarning('VDF TRIGGERED - ML Bot flagged transaction');
     printKeyValue('VDF Iterations', VDF_ITERATIONS.toLocaleString());
     printKeyValue('VDF Delay', `${VDF_DELAY_SECONDS / 60} minutes (buys time for guardian review)`);
-    await simulateProgress('VDF computing (guardians alerted)', 5, 2500);
+  }
+
+  await delay(500);
+  printDivider();
+
+  // ─── Step 3: VDF Time-Lock ───
+  printStep(3, 'VDF Time-Lock Initiated');
+
+  if (vdfRequired) {
+    if (LIVE_MODE) {
+      printSubStep('Requesting VDF computation from VDF Worker...');
+      await liveVDFComputation(liveConfig!, tx.txHash, tx.sourceChain, tx.sender);
+      printInfo('VDF buys time for guardians to review');
+      printWarning('Transaction cannot execute until VDF completes or guardians decide');
+    } else {
+      printSubStep('VDF computation starting on protocol worker...');
+      await delay(400);
+      printKeyValue('Challenge', formatBytes32(tx.txHash));
+      printKeyValue('Iterations', VDF_ITERATIONS.toLocaleString());
+      printKeyValue('Expected completion', `${VDF_DELAY_SECONDS / 60} minutes`);
+      printInfo('VDF buys time for guardians to review');
+      printWarning('Transaction cannot execute until VDF completes or guardians decide');
+      await simulateProgress('VDF computing (guardians alerted)', 5, 2500);
+    }
   }
 
   printDivider();
 
-  // ─── Step 3: LiFi Route (Still fetched for context) ───
-  printStep(3, 'LiFi Route Discovery');
+  // ─── Step 4: LiFi Route (Still fetched for context) ───
+  printStep(4, 'LiFi Route Discovery');
 
   printSubStep('Fetching bridge route for context...');
   await delay(1200);
@@ -192,77 +263,102 @@ async function main() {
   await delay(500);
   printDivider();
 
-  // ─── Step 4: Guardian Voting (Blacklist Review) ───
-  printStep(4, 'Guardian Voting (ZK Commit-Reveal)');
+  // ─── Step 5: Guardian Voting (Blacklist Review) ───
+  printStep(5, LIVE_MODE ? 'Guardian Voting - Blacklist Review (Live API)' : 'Guardian Voting (ZK Commit-Reveal)');
   printInfo('Guardian voting is MANDATORY for all transactions');
   printWarning('CRITICAL ALERT: Destination on blacklist - evidence presented to guardians');
   printInfo('Guardians reviewing blacklist evidence...');
   await delay(600);
 
-  // Generate proposal ID
-  const proposalId = generateProposalId(`blacklist-review-${tx.txHash}`);
-  printKeyValue('Proposal ID', formatBytes32(proposalId));
+  let voteApprove: number;
+  let voteReject: number;
+  let voteAbstain: number;
+  let voteRejected: boolean;
 
-  // Show blacklist evidence to guardians
-  await delay(400);
-  printSubStep('Evidence presented to guardians:');
-  await delay(300);
-  printSubStep(`  - Destination: ${formatAddress(tx.destination)}`);
-  await delay(200);
-  printSubStep(`  - Blacklist Reason: ${SCENARIO.blacklistReason}`);
-  await delay(200);
-  printSubStep('  - Address linked to $625M exploit');
-  await delay(200);
-  printSubStep('  - OFAC sanctioned address');
+  if (LIVE_MODE) {
+    const votingResult = await liveGuardianVoting(
+      liveConfig!,
+      {
+        txHash: tx.txHash,
+        sender: tx.sender,
+        target: tx.destination,
+        value: tx.amount,
+        data: tx.data,
+        chainId: tx.sourceChain,
+        amount: tx.amount,
+        mlScore,
+        mlFlagged,
+      },
+      'reject', // Force reject for this demo scenario
+    );
 
-  // Create voting decisions - REJECTION scenario
-  const decisions = createVotingDecisions(
-    SCENARIO.votes.approve,
-    SCENARIO.votes.reject,
-    SCENARIO.votes.abstain,
-  );
+    voteApprove = votingResult.votes.approve;
+    voteReject = votingResult.votes.reject;
+    voteAbstain = votingResult.votes.abstain;
+    voteRejected = votingResult.rejected;
+  } else {
+    // Show blacklist evidence to guardians
+    const proposalId = generateProposalId(`blacklist-review-${tx.txHash}`);
+    printKeyValue('Proposal ID', formatBytes32(proposalId));
 
-  // Phase 4a: Commit Phase
-  await delay(600);
-  printSubStep('Phase 1: Commitment Submission');
-  const commitments = simulateCommitPhase(decisions);
-
-  for (const commitment of commitments) {
-    const guardian = network.guardians[commitment.guardianId];
-    await delay(250);
-    printSubStep(`  ${guardian.name} submitted commitment`);
-  }
-  printSuccess(`${commitments.length}/${GUARDIAN_COUNT} commitments received`);
-
-  // Phase 4b: Reveal Phase
-  await delay(500);
-  printSubStep('Phase 2: Vote Reveal with ZK Proofs');
-  const reveals = simulateRevealPhase(commitments, decisions);
-
-  for (const reveal of reveals) {
-    const guardian = network.guardians[reveal.guardianId];
-    const voteStr = reveal.vote === 1 ? 'APPROVE' : reveal.vote === 0 ? 'REJECT' : 'ABSTAIN';
-    const reason = reveal.vote === 0 ? '(blacklist confirmed)' :
-                   reveal.vote === 1 ? '(disagrees with blacklist)' : '';
+    await delay(400);
+    printSubStep('Evidence presented to guardians:');
     await delay(300);
-    printSubStep(`  ${guardian.name} revealed: ${voteStr} ${reason}`);
+    printSubStep(`  - Destination: ${formatAddress(tx.destination)}`);
+    await delay(200);
+    printSubStep(`  - Blacklist Reason: ${SCENARIO.blacklistReason}`);
+    await delay(200);
+    printSubStep('  - Address linked to $625M exploit');
+    await delay(200);
+    printSubStep('  - OFAC sanctioned address');
+
+    const decisions = createVotingDecisions(
+      SCENARIO.votes.approve,
+      SCENARIO.votes.reject,
+      SCENARIO.votes.abstain,
+    );
+
+    await delay(600);
+    printSubStep('Phase 1: Commitment Submission');
+    const commitments = simulateCommitPhase(decisions);
+
+    for (const commitment of commitments) {
+      const guardian = network!.guardians[commitment.guardianId];
+      await delay(250);
+      printSubStep(`  ${guardian.name} submitted commitment`);
+    }
+    printSuccess(`${commitments.length}/${GUARDIAN_COUNT} commitments received`);
+
+    await delay(500);
+    printSubStep('Phase 2: Vote Reveal with ZK Proofs');
+    const reveals = simulateRevealPhase(commitments, decisions);
+
+    for (const reveal of reveals) {
+      const guardian = network!.guardians[reveal.guardianId];
+      const voteStr = reveal.vote === 1 ? 'APPROVE' : reveal.vote === 0 ? 'REJECT' : 'ABSTAIN';
+      const reason = reveal.vote === 0 ? '(blacklist confirmed)' :
+                     reveal.vote === 1 ? '(disagrees with blacklist)' : '';
+      await delay(300);
+      printSubStep(`  ${guardian.name} revealed: ${voteStr} ${reason}`);
+    }
+
+    await delay(500);
+    printSubStep('Phase 3: Vote Tally');
+    const tally = tallyVotes(decisions);
+    voteApprove = tally.approve;
+    voteReject = tally.reject;
+    voteAbstain = tally.abstain;
+    voteRejected = isRejectionReached(tally.reject);
   }
 
-  // Phase 4c: Tally
-  await delay(500);
-  printSubStep('Phase 3: Vote Tally');
-  const tally = tallyVotes(decisions);
-  printVoteResult(tally.approve, tally.reject, tally.abstain);
-
-  const voteApproved = isApprovalReached(tally.approve);
-  const voteRejected = isRejectionReached(tally.reject);
+  printVoteResult(voteApprove, voteReject, voteAbstain);
 
   await delay(400);
   if (voteRejected) {
-    printFailure(`REJECTION threshold reached: ${tally.reject}/${REJECTION_THRESHOLD} rejections`);
+    printFailure(`REJECTION threshold reached: ${voteReject}/${REJECTION_THRESHOLD} rejections`);
     printWarning('Guardians have confirmed: DO NOT send to blacklisted address');
-  } else if (voteApproved) {
-    printSuccess(`Approval threshold reached: ${tally.approve}/${GUARDIAN_THRESHOLD}`);
+  } else if (isApprovalReached(voteApprove)) {
+    printSuccess(`Approval threshold reached: ${voteApprove}/${GUARDIAN_THRESHOLD}`);
   } else {
     printInfo('No threshold reached - vote inconclusive');
   }
@@ -270,8 +366,8 @@ async function main() {
   await delay(500);
   printDivider();
 
-  // ─── Step 5: FROST Rejection Signature ───
-  printStep(5, 'FROST Rejection Signature');
+  // ─── Step 6: FROST Rejection Signature ───
+  printStep(6, 'FROST Rejection Signature');
 
   if (!voteRejected) {
     printInfo('Transaction not rejected by guardians');
@@ -279,45 +375,52 @@ async function main() {
     return;
   }
 
-  // Get REJECTING guardians for signing
-  const rejectingGuardians = decisions
-    .filter(d => d.vote === 'REJECT')
-    .map(d => d.guardianId);
+  if (LIVE_MODE) {
+    printSuccess('FROST rejection signature received from Guardian Network');
+    printInfo('Rejection signed by rejecting guardians via real FROST protocol');
+  } else {
+    const rejectingGuardians = createVotingDecisions(
+      SCENARIO.votes.approve,
+      SCENARIO.votes.reject,
+      SCENARIO.votes.abstain,
+    )
+      .filter(d => d.vote === 'REJECT')
+      .map(d => d.guardianId);
 
-  printSubStep(`Signing participants: ${rejectingGuardians.length} rejecting guardians`);
-  printKeyValue('Rejection threshold', `${REJECTION_THRESHOLD} of ${GUARDIAN_COUNT}`);
+    printSubStep(`Signing participants: ${rejectingGuardians.length} rejecting guardians`);
+    printKeyValue('Rejection threshold', `${REJECTION_THRESHOLD} of ${GUARDIAN_COUNT}`);
 
-  // Create message to sign (rejection of proposal)
-  const rejectionMessage = Buffer.from(
-    ethers.keccak256(ethers.toUtf8Bytes(`REJECT:${proposalId}`)).slice(2),
-    'hex'
-  );
+    const proposalId = generateProposalId(`blacklist-review-${tx.txHash}`);
+    const rejectionMessage = Buffer.from(
+      ethers.keccak256(ethers.toUtf8Bytes(`REJECT:${proposalId}`)).slice(2),
+      'hex',
+    );
 
-  await delay(600);
-  printSubStep('Round 1: Generating nonce commitments...');
-  await delay(1000);
-  printSubStep('Round 2: Generating signature shares...');
-  await delay(800);
-  printSubStep('Aggregating rejection signature...');
-  await delay(500);
+    await delay(600);
+    printSubStep('Round 1: Generating nonce commitments...');
+    await delay(1000);
+    printSubStep('Round 2: Generating signature shares...');
+    await delay(800);
+    printSubStep('Aggregating rejection signature...');
+    await delay(500);
 
-  // Create actual FROST signature using real crypto
-  const signature = await createFROSTSignature(network, rejectionMessage, rejectingGuardians);
-  const soliditySig = formatForSolidity(signature);
+    const signature = await createFROSTSignature(network!, rejectionMessage, rejectingGuardians);
+    const soliditySig = formatForSolidity(signature);
 
-  printSuccess('FROST rejection signature created');
-  printKeyValue('R (commitment)', formatBytes32(soliditySig.R));
-  printKeyValue('z (scalar)', formatBytes32(soliditySig.z));
+    printSuccess('FROST rejection signature created');
+    printKeyValue('R (commitment)', formatBytes32(soliditySig.R));
+    printKeyValue('z (scalar)', formatBytes32(soliditySig.z));
+  }
 
   await delay(500);
   printDivider();
 
-  // ─── Step 6: Transaction Blocked ───
-  printStep(6, 'Transaction Blocked');
+  // ─── Step 7: Transaction Blocked ───
+  printStep(7, 'Transaction Blocked');
 
   printSubStep('Security enforcement:');
   await delay(400);
-  printFailure('Guardian vote: REJECTED (8/4 rejection threshold)');
+  printFailure(`Guardian vote: REJECTED (${voteReject}/${REJECTION_THRESHOLD} rejection threshold)`);
   await delay(300);
   printSuccess('FROST rejection signature: VALID');
   await delay(300);
@@ -340,14 +443,15 @@ async function main() {
 
   // Summary
   console.log('Summary:');
+  printKeyValue('Mode', LIVE_MODE ? 'LIVE (real infrastructure)' : 'MOCK (simulated)');
   printKeyValue('Amount', `${formatEth(tx.amount)} (${formatUSD(tx.amount)})`);
   printKeyValue('Route', `${getChainName(SCENARIO.sourceChain)} → ${getChainName(SCENARIO.destChain)}`);
   printKeyValue('Destination', formatAddress(tx.destination));
   printKeyValue('Blacklist Status', 'BLACKLISTED');
   printKeyValue('Blacklist Reason', SCENARIO.blacklistReason);
-  printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (threshold: ${ML_BOT_THRESHOLD})`);
-  printKeyValue('VDF Triggered', `Yes (ML score ${mlAnalysis.score} >= ${ML_BOT_THRESHOLD}) - cancelled after rejection`);
-  printKeyValue('Guardian Vote', `${tally.approve} approve, ${tally.reject} reject, ${tally.abstain} abstain`);
+  printKeyValue('ML Bot Score', `${mlScore}/100 (threshold: ${ML_BOT_THRESHOLD})`);
+  printKeyValue('VDF Triggered', `Yes (ML score ${mlScore} >= ${ML_BOT_THRESHOLD}) - cancelled after rejection`);
+  printKeyValue('Guardian Vote', `${voteApprove} approve, ${voteReject} reject, ${voteAbstain} abstain`);
   printKeyValue('FROST Signature', 'Rejection signature valid');
   printKeyValue('Outcome', 'BLOCKED - Funds protected');
   console.log();

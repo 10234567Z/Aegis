@@ -8,18 +8,7 @@
  * - VDF Outcome: CANCELLED (transaction blocked before VDF could complete)
  * - Result: FAIL (guardians detected attack pattern)
  *
- * Flow:
- * 1. Attacker submits 1000 ETH withdrawal (Ethereum → Ethereum)
- * 2. ML Bot analyzes → score 95/100 (dangerous) → FLAGGED
- *    - Flash loan detected, price manipulation, suspicious withdrawal
- * 3. VDF computation starts (30 min fixed delay, buys time for guardians)
- * 4. Guardian voting happens IN PARALLEL:
- *    - All 10 guardians submit ZK commitments
- *    - All 10 guardians reveal votes with ZK proofs
- *    - Tally: 2 approve, 7 reject, 1 abstain → REJECTION threshold met
- * 5. FROST signature created by 7 REJECTING guardians
- * 6. Transaction BLOCKED - attack prevented
- * 7. VDF computation cancelled (not needed)
+ * Supports --live mode: uses real Agent API, Guardian Mock, and VDF Worker.
  */
 
 import { ethers } from 'ethers';
@@ -55,6 +44,7 @@ import {
   runScript,
   delay,
   simulateProgress,
+  LIVE_MODE,
 } from './shared';
 
 import {
@@ -66,6 +56,9 @@ import {
   createFROSTSignature,
   formatForSolidity,
 } from './shared/mockGuardians';
+
+import { ensureServices, getLiveConfig, printLiveModeBanner, LiveConfig } from './shared/liveMode';
+import { liveMLAnalysis, liveGuardianVoting, liveVDFComputation } from './shared/liveClients';
 
 // ─── Script Configuration ───
 
@@ -89,11 +82,26 @@ const SCENARIO = {
 async function main() {
   printHeader(`USE CASE 3: ${SCENARIO.name.toUpperCase()}`);
 
-  // Initialize guardian network (uses real FROST DKG)
-  printStep(0, 'Initializing Guardian Network');
-  const network = await initializeGuardianNetwork();
-  printSuccess(`${GUARDIAN_COUNT} guardians initialized with FROST keys`);
-  printKeyValue('Group Public Key', formatBytes32('0x' + network.groupPublicKey.toString('hex')));
+  // ─── Live Mode Setup ───
+  let liveConfig: LiveConfig | undefined;
+  if (LIVE_MODE) {
+    printLiveModeBanner();
+    await ensureServices();
+    liveConfig = await getLiveConfig();
+    printSuccess(`Connected to Hardhat node. Signer: ${formatAddress(liveConfig.signerAddress)}`);
+    printDivider();
+  }
+
+  // ─── Step 0: Guardian Network ───
+  printStep(0, LIVE_MODE ? 'Connecting to Guardian Network' : 'Initializing Guardian Network');
+  let network;
+  if (LIVE_MODE) {
+    printSuccess('Guardian Network running on :3001 (real FROST signing)');
+  } else {
+    network = await initializeGuardianNetwork();
+    printSuccess(`${GUARDIAN_COUNT} guardians initialized with FROST keys`);
+    printKeyValue('Group Public Key', formatBytes32('0x' + network.groupPublicKey.toString('hex')));
+  }
 
   await delay(500);
   printDivider();
@@ -105,6 +113,7 @@ async function main() {
   const tx = createMockTransaction({
     amount: SCENARIO.amount,
     sourceChain: SCENARIO.sourceChain,
+    sender: LIVE_MODE ? liveConfig!.signerAddress : undefined,
   });
 
   printKeyValue('Type', 'Large Withdrawal (SUSPICIOUS)');
@@ -113,19 +122,44 @@ async function main() {
   printKeyValue('Destination', formatAddress(tx.destination));
   printKeyValue('Chain', getChainName(tx.sourceChain));
   printKeyValue('TX Hash', formatBytes32(tx.txHash));
+  if (LIVE_MODE) printInfo('Mode: LIVE (real APIs)');
 
   await delay(500);
   printDivider();
 
-  // ─── Step 2: Security Checks ───
+  // ─── Step 2: Security Analysis ───
   printStep(2, 'Security Analysis');
 
-  // ML Bot analysis - ATTACK DETECTED
-  printSubStep('Running ML Bot analysis...');
-  await simulateProgress('Deep pattern analysis', 6, 2500);
-  const mlAnalysis = simulateMLBotAnalysis({ score: SCENARIO.mlBotScore, verdict: 'dangerous' });
-  printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (CRITICAL)`);
-  printKeyValue('ML Bot Verdict', mlAnalysis.verdict);
+  let mlScore: number;
+  let mlVerdict: string;
+  let mlFlagged: boolean;
+
+  if (LIVE_MODE) {
+    printSubStep('Calling ML Agent API...');
+    const analysis = await liveMLAnalysis(liveConfig!, {
+      txHash: tx.txHash,
+      sender: tx.sender,
+      target: tx.destination,
+      value: tx.amount,
+      data: tx.data,
+      chainId: tx.sourceChain,
+      amount: tx.amount,
+    });
+    mlScore = analysis.score;
+    mlVerdict = analysis.verdict;
+    mlFlagged = analysis.flagged;
+    printKeyValue('ML Bot Score', `${mlScore}/100 (from real Agent API)`);
+  } else {
+    printSubStep('Running ML Bot analysis...');
+    await simulateProgress('Deep pattern analysis', 6, 2500);
+    const mlAnalysis = simulateMLBotAnalysis({ score: SCENARIO.mlBotScore, verdict: 'dangerous' });
+    mlScore = mlAnalysis.score;
+    mlVerdict = mlAnalysis.verdict;
+    mlFlagged = mlAnalysis.flagged;
+    printKeyValue('ML Bot Score', `${mlScore}/100 (CRITICAL)`);
+  }
+
+  printKeyValue('ML Bot Verdict', mlVerdict);
   printKeyValue('Flag Threshold', `${ML_BOT_THRESHOLD}/100`);
   await delay(300);
   printFailure(`ATTACK PATTERN DETECTED: ${SCENARIO.attackType}`);
@@ -142,10 +176,9 @@ async function main() {
   printSubStep('  - Similar pattern to known exploits');
 
   await delay(400);
-  printWarning(`Transaction FLAGGED by ML Bot (score ${mlAnalysis.score} >= threshold ${ML_BOT_THRESHOLD})`);
+  printWarning(`Transaction FLAGGED by ML Bot (score ${mlScore} >= threshold ${ML_BOT_THRESHOLD})`);
 
-  // Check VDF requirement
-  const vdfRequired = isVDFRequired(mlAnalysis.flagged);
+  const vdfRequired = isVDFRequired(mlFlagged);
 
   if (vdfRequired) {
     await delay(400);
@@ -162,75 +195,107 @@ async function main() {
   printStep(3, 'VDF Time-Lock Initiated');
 
   if (vdfRequired) {
-    printSubStep('VDF computation starting on protocol worker...');
-    await delay(400);
-    printKeyValue('Challenge', formatBytes32(tx.txHash));
-    printKeyValue('Iterations', VDF_ITERATIONS.toLocaleString());
-    printKeyValue('Expected completion', `${VDF_DELAY_SECONDS / 60} minutes`);
-    printInfo('VDF buys time for guardians to review');
-    printWarning('Attacker must wait - cannot bypass VDF');
-    await simulateProgress('VDF computing (guardians reviewing)', 5, 3000);
+    if (LIVE_MODE) {
+      printSubStep('Requesting VDF computation from VDF Worker...');
+      await liveVDFComputation(liveConfig!, tx.txHash, tx.sourceChain, tx.sender);
+      printInfo('VDF buys time for guardians to review');
+      printWarning('Attacker must wait - cannot bypass VDF');
+    } else {
+      printSubStep('VDF computation starting on protocol worker...');
+      await delay(400);
+      printKeyValue('Challenge', formatBytes32(tx.txHash));
+      printKeyValue('Iterations', VDF_ITERATIONS.toLocaleString());
+      printKeyValue('Expected completion', `${VDF_DELAY_SECONDS / 60} minutes`);
+      printInfo('VDF buys time for guardians to review');
+      printWarning('Attacker must wait - cannot bypass VDF');
+      await simulateProgress('VDF computing (guardians reviewing)', 5, 3000);
+    }
   }
 
   printDivider();
 
-  // ─── Step 4: Guardian Voting (Attack Review) ───
-  printStep(4, 'Guardian Voting (Attack Review)');
-  printWarning('HIGH PRIORITY: ML Bot score 95/100');
+  // ─── Step 4: Guardian Voting ───
+  printStep(4, LIVE_MODE ? 'Guardian Voting - Attack Review (Live API)' : 'Guardian Voting (Attack Review)');
+  printWarning(`HIGH PRIORITY: ML Bot score ${mlScore}/100`);
   printInfo('Guardians reviewing attack evidence...');
   await delay(600);
 
-  // Generate proposal ID
-  const proposalId = generateProposalId(`attack-review-${tx.txHash}`);
-  printKeyValue('Proposal ID', formatBytes32(proposalId));
+  let voteApprove: number;
+  let voteReject: number;
+  let voteAbstain: number;
+  let voteRejected: boolean;
 
-  // Create voting decisions - REJECTION scenario
-  const decisions = createVotingDecisions(
-    SCENARIO.votes.approve,
-    SCENARIO.votes.reject,
-    SCENARIO.votes.abstain,
-  );
+  if (LIVE_MODE) {
+    const votingResult = await liveGuardianVoting(
+      liveConfig!,
+      {
+        txHash: tx.txHash,
+        sender: tx.sender,
+        target: tx.destination,
+        value: tx.amount,
+        data: tx.data,
+        chainId: tx.sourceChain,
+        amount: tx.amount,
+        mlScore,
+        mlFlagged,
+      },
+      'reject', // Force reject for this demo scenario
+    );
 
-  // Phase 4a: Commit Phase
-  await delay(500);
-  printSubStep('Phase 1: Commitment Submission');
-  const commitments = simulateCommitPhase(decisions);
+    voteApprove = votingResult.votes.approve;
+    voteReject = votingResult.votes.reject;
+    voteAbstain = votingResult.votes.abstain;
+    voteRejected = votingResult.rejected;
+  } else {
+    const proposalId = generateProposalId(`attack-review-${tx.txHash}`);
+    printKeyValue('Proposal ID', formatBytes32(proposalId));
 
-  for (const commitment of commitments) {
-    const guardian = network.guardians[commitment.guardianId];
-    await delay(250);
-    printSubStep(`  ${guardian.name} submitted commitment`);
+    const decisions = createVotingDecisions(
+      SCENARIO.votes.approve,
+      SCENARIO.votes.reject,
+      SCENARIO.votes.abstain,
+    );
+
+    await delay(500);
+    printSubStep('Phase 1: Commitment Submission');
+    const commitments = simulateCommitPhase(decisions);
+
+    for (const commitment of commitments) {
+      const guardian = network!.guardians[commitment.guardianId];
+      await delay(250);
+      printSubStep(`  ${guardian.name} submitted commitment`);
+    }
+    printSuccess(`${commitments.length}/${GUARDIAN_COUNT} commitments received`);
+
+    await delay(500);
+    printSubStep('Phase 2: Vote Reveal with ZK Proofs');
+    const reveals = simulateRevealPhase(commitments, decisions);
+
+    for (const reveal of reveals) {
+      const guardian = network!.guardians[reveal.guardianId];
+      const voteStr = reveal.vote === 1 ? 'APPROVE' : reveal.vote === 0 ? 'REJECT' : 'ABSTAIN';
+      const emoji = reveal.vote === 0 ? '(attack confirmed)' : '';
+      await delay(300);
+      printSubStep(`  ${guardian.name} revealed: ${voteStr} ${emoji}`);
+    }
+
+    await delay(500);
+    printSubStep('Phase 3: Vote Tally');
+    const tally = tallyVotes(decisions);
+    voteApprove = tally.approve;
+    voteReject = tally.reject;
+    voteAbstain = tally.abstain;
+    voteRejected = isRejectionReached(tally.reject);
   }
-  printSuccess(`${commitments.length}/${GUARDIAN_COUNT} commitments received`);
 
-  // Phase 4b: Reveal Phase
-  await delay(500);
-  printSubStep('Phase 2: Vote Reveal with ZK Proofs');
-  const reveals = simulateRevealPhase(commitments, decisions);
-
-  for (const reveal of reveals) {
-    const guardian = network.guardians[reveal.guardianId];
-    const voteStr = reveal.vote === 1 ? 'APPROVE' : reveal.vote === 0 ? 'REJECT' : 'ABSTAIN';
-    const emoji = reveal.vote === 0 ? '(attack confirmed)' : '';
-    await delay(300);
-    printSubStep(`  ${guardian.name} revealed: ${voteStr} ${emoji}`);
-  }
-
-  // Phase 4c: Tally
-  await delay(500);
-  printSubStep('Phase 3: Vote Tally');
-  const tally = tallyVotes(decisions);
-  printVoteResult(tally.approve, tally.reject, tally.abstain);
-
-  const voteApproved = isApprovalReached(tally.approve);
-  const voteRejected = isRejectionReached(tally.reject);
+  printVoteResult(voteApprove, voteReject, voteAbstain);
 
   await delay(400);
   if (voteRejected) {
-    printFailure(`REJECTION threshold reached: ${tally.reject}/${REJECTION_THRESHOLD} rejections`);
+    printFailure(`REJECTION threshold reached: ${voteReject}/${REJECTION_THRESHOLD} rejections`);
     printWarning('Guardians have confirmed this is an attack');
-  } else if (voteApproved) {
-    printSuccess(`Approval threshold reached: ${tally.approve}/${GUARDIAN_THRESHOLD}`);
+  } else if (isApprovalReached(voteApprove)) {
+    printSuccess(`Approval threshold reached: ${voteApprove}/${GUARDIAN_THRESHOLD}`);
   } else {
     printInfo('No threshold reached - vote inconclusive');
   }
@@ -247,35 +312,42 @@ async function main() {
     return;
   }
 
-  // Get REJECTING guardians for signing (they sign the rejection)
-  const rejectingGuardians = decisions
-    .filter(d => d.vote === 'REJECT')
-    .map(d => d.guardianId);
+  if (LIVE_MODE) {
+    printSuccess('FROST rejection signature received from Guardian Network');
+    printInfo('Rejection signed by rejecting guardians via real FROST protocol');
+  } else {
+    const rejectingGuardians = createVotingDecisions(
+      SCENARIO.votes.approve,
+      SCENARIO.votes.reject,
+      SCENARIO.votes.abstain,
+    )
+      .filter(d => d.vote === 'REJECT')
+      .map(d => d.guardianId);
 
-  printSubStep(`Signing participants: ${rejectingGuardians.length} rejecting guardians`);
-  printKeyValue('Rejection threshold', `${REJECTION_THRESHOLD} of ${GUARDIAN_COUNT}`);
+    printSubStep(`Signing participants: ${rejectingGuardians.length} rejecting guardians`);
+    printKeyValue('Rejection threshold', `${REJECTION_THRESHOLD} of ${GUARDIAN_COUNT}`);
 
-  // Create message to sign (rejection of proposal)
-  const rejectionMessage = Buffer.from(
-    ethers.keccak256(ethers.toUtf8Bytes(`REJECT:${proposalId}`)).slice(2),
-    'hex'
-  );
+    const proposalId = generateProposalId(`attack-review-${tx.txHash}`);
+    const rejectionMessage = Buffer.from(
+      ethers.keccak256(ethers.toUtf8Bytes(`REJECT:${proposalId}`)).slice(2),
+      'hex',
+    );
 
-  await delay(600);
-  printSubStep('Round 1: Generating nonce commitments...');
-  await delay(1000);
-  printSubStep('Round 2: Generating signature shares...');
-  await delay(800);
-  printSubStep('Aggregating rejection signature...');
-  await delay(500);
+    await delay(600);
+    printSubStep('Round 1: Generating nonce commitments...');
+    await delay(1000);
+    printSubStep('Round 2: Generating signature shares...');
+    await delay(800);
+    printSubStep('Aggregating rejection signature...');
+    await delay(500);
 
-  // Create actual FROST signature using real crypto
-  const signature = await createFROSTSignature(network, rejectionMessage, rejectingGuardians);
-  const soliditySig = formatForSolidity(signature);
+    const signature = await createFROSTSignature(network!, rejectionMessage, rejectingGuardians);
+    const soliditySig = formatForSolidity(signature);
 
-  printSuccess('FROST rejection signature created');
-  printKeyValue('R (commitment)', formatBytes32(soliditySig.R));
-  printKeyValue('z (scalar)', formatBytes32(soliditySig.z));
+    printSuccess('FROST rejection signature created');
+    printKeyValue('R (commitment)', formatBytes32(soliditySig.R));
+    printKeyValue('z (scalar)', formatBytes32(soliditySig.z));
+  }
 
   await delay(500);
   printDivider();
@@ -285,7 +357,7 @@ async function main() {
 
   printSubStep('Security enforcement:');
   await delay(400);
-  printFailure('Guardian vote: REJECTED (7/4 rejection threshold)');
+  printFailure(`Guardian vote: REJECTED (${voteReject}/${REJECTION_THRESHOLD} rejection threshold)`);
   await delay(300);
   printSuccess('FROST rejection signature: VALID');
   await delay(300);
@@ -306,11 +378,12 @@ async function main() {
 
   // Summary
   console.log('Summary:');
+  printKeyValue('Mode', LIVE_MODE ? 'LIVE (real infrastructure)' : 'MOCK (simulated)');
   printKeyValue('Amount', `${formatEth(tx.amount)} (${formatUSD(tx.amount)})`);
   printKeyValue('Attack Type', SCENARIO.attackType);
-  printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (threshold: ${ML_BOT_THRESHOLD})`);
-  printKeyValue('VDF Triggered', `Yes (ML score ${mlAnalysis.score} >= ${ML_BOT_THRESHOLD}) - cancelled after rejection`);
-  printKeyValue('Guardian Vote', `${tally.approve} approve, ${tally.reject} reject, ${tally.abstain} abstain`);
+  printKeyValue('ML Bot Score', `${mlScore}/100 (threshold: ${ML_BOT_THRESHOLD})`);
+  printKeyValue('VDF Triggered', vdfRequired ? `Yes (ML score ${mlScore} >= ${ML_BOT_THRESHOLD}) - cancelled after rejection` : 'No');
+  printKeyValue('Guardian Vote', `${voteApprove} approve, ${voteReject} reject, ${voteAbstain} abstain`);
   printKeyValue('FROST Signature', 'Rejection signature valid');
   printKeyValue('Outcome', 'BLOCKED - Funds protected');
   console.log();
@@ -318,7 +391,7 @@ async function main() {
   // Attack timeline
   console.log('Attack Timeline:');
   printKeyValue('T+0s', 'Attacker submitted suspicious transaction');
-  printKeyValue('T+1s', `ML Bot flagged with ${mlAnalysis.score}/100 score`);
+  printKeyValue('T+1s', `ML Bot flagged with ${mlScore}/100 score`);
   printKeyValue('T+2s', `VDF started (${VDF_DELAY_SECONDS / 60} min countdown)`);
   printKeyValue('T+5s', 'Guardians notified of high-priority alert');
   printKeyValue('T+30s', 'All guardians voted REJECT');
