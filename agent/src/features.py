@@ -8,37 +8,32 @@ from typing import Any
 from collections import Counter
 
 # ────────────────────────────────────────────────────────────────
-# Feature names (exact match to training data)
+# Feature names (exact match to training data - ORDER MATTERS!)
 # ────────────────────────────────────────────────────────────────
 
 FEATURE_COLUMNS = [
-    # Basic account activity (7)
     "Avg min between sent tnx",
     "Avg min between received tnx",
     "Time Diff between first and last (Mins)",
     "Sent tnx",
     "Received Tnx",
-    "total transactions (including tnx to create contract",
     "Number of Created Contracts",
-    # Counterparty diversity (2)
     "Unique Received From Addresses",
     "Unique Sent To Addresses",
-    # Ether value statistics (9)
     "min value received",
-    "max value received ",  # note trailing space in original
+    "max value received ",  # note trailing space
     "avg val received",
     "min val sent",
     "max val sent",
     "avg val sent",
-    "total Ether sent",
-    "total ether received",
-    "total ether balance",
-    # Contract interaction (4)
     "min value sent to contract",
     "max val sent to contract",
     "avg value sent to contract",
+    "total transactions (including tnx to create contract",
+    "total Ether sent",
+    "total ether received",
     "total ether sent contracts",
-    # ERC-20 activity (25)
+    "total ether balance",
     " Total ERC20 tnxs",
     " ERC20 total Ether received",
     " ERC20 total ether sent",
