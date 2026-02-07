@@ -35,15 +35,20 @@ const config: HardhatUserConfig = {
       accounts: [PRIVATE_KEY],
       chainId: 11155111,
     },
-    mumbai: {
-      url: process.env.MUMBAI_RPC_URL || "https://rpc-mumbai.maticvigil.com",
+    amoy: {
+      url: process.env.AMOY_RPC_URL || "https://rpc-amoy.polygon.technology",
       accounts: [PRIVATE_KEY],
-      chainId: 80001,
+      chainId: 80002,
     },
     arbitrumSepolia: {
       url: process.env.ARBITRUM_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc",
       accounts: [PRIVATE_KEY],
       chainId: 421614,
+    },
+    baseSepolia: {
+      url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
+      accounts: [PRIVATE_KEY],
+      chainId: 84532,
     },
     // Mainnets
     mainnet: {
@@ -77,9 +82,10 @@ const config: HardhatUserConfig = {
       mainnet: ETHERSCAN_API_KEY,
       sepolia: ETHERSCAN_API_KEY,
       polygon: POLYGONSCAN_API_KEY,
-      polygonMumbai: POLYGONSCAN_API_KEY,
+      polygonAmoy: POLYGONSCAN_API_KEY,
       arbitrumOne: ARBISCAN_API_KEY,
       arbitrumSepolia: ARBISCAN_API_KEY,
+      baseSepolia: process.env.BASESCAN_API_KEY || "",
     },
   },
   paths: {
