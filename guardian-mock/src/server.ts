@@ -32,6 +32,7 @@ interface Proposal {
   id: string;
   txHash: string;
   sender: string;
+  senderENS: string | null;
   target: string;
   value: string;
   data: string;
@@ -84,7 +85,7 @@ app.get('/health', (_req: Request, res: Response) => {
 // Submit proposal
 app.post('/proposals/submit', async (req: Request, res: Response) => {
   try {
-    const { txHash, sender, target, value, data, chainId, amount, mlScore, mlFlagged } = req.body;
+    const { txHash, sender, senderENS, target, value, data, chainId, amount, mlScore, mlFlagged } = req.body;
 
     if (!txHash || !sender) {
       return res.status(400).json({ error: 'Missing required fields: txHash, sender' });
@@ -100,6 +101,7 @@ app.post('/proposals/submit', async (req: Request, res: Response) => {
       id: proposalId,
       txHash,
       sender,
+      senderENS: senderENS || null,
       target: target || '',
       value: value || '0',
       data: data || '0x',
@@ -117,7 +119,8 @@ app.post('/proposals/submit', async (req: Request, res: Response) => {
     // Simulate voting (async, happens in background)
     simulateVoting(proposal);
 
-    console.log(`[Proposal ${proposalId.slice(0, 10)}...] Submitted. ML Score: ${mlScore}, Flagged: ${mlFlagged}`);
+    const senderLabel = proposal.senderENS ? `${proposal.senderENS} (${sender})` : sender;
+    console.log(`[Proposal ${proposalId.slice(0, 10)}...] Submitted by ${senderLabel}. ML Score: ${mlScore}, Flagged: ${mlFlagged}`);
 
     res.json({
       proposalId,
@@ -146,6 +149,7 @@ app.get('/proposals/:id', (req: Request, res: Response) => {
     frostSignature: proposal.frostSignature,
     mlScore: proposal.mlScore,
     mlFlagged: proposal.mlFlagged,
+    senderENS: proposal.senderENS,
   });
 });
 
@@ -177,6 +181,7 @@ app.get('/proposals/:id/status', (req: Request, res: Response) => {
       R: proposal.frostSignature.R,
       z: proposal.frostSignature.z,
     } : undefined,
+    senderENS: proposal.senderENS,
     expiresAt: proposal.createdAt + 5 * 60 * 1000, // 5 min expiry
   });
 });

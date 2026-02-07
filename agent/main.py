@@ -9,8 +9,12 @@ Routes:
 """
 
 import os
+import json
+import queue
+import threading
+import time
 import requests
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from dotenv import load_dotenv
 
 from src.etherscan import EtherscanClient
@@ -27,6 +31,61 @@ detector = FraudDetector()
 
 # Threshold for flagging (score > 50 = flagged)
 ML_FLAG_THRESHOLD = 50.0
+
+# ─── SSE Infrastructure ───
+
+# Registered SSE clients (each gets their own queue)
+sse_clients: list[queue.Queue] = []
+sse_clients_lock = threading.Lock()
+
+
+def sse_publish(event_type: str, data: dict) -> None:
+    """Push an event to all connected SSE clients."""
+    payload = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+    with sse_clients_lock:
+        dead = []
+        for q in sse_clients:
+            try:
+                q.put_nowait(payload)
+            except queue.Full:
+                dead.append(q)
+        for q in dead:
+            sse_clients.remove(q)
+
+
+def sse_stream(client_queue: queue.Queue):
+    """Generator that yields SSE events for one client."""
+    try:
+        while True:
+            try:
+                payload = client_queue.get(timeout=30)
+                yield payload
+            except queue.Empty:
+                # Send keepalive comment every 30s
+                yield ": keepalive\n\n"
+    except GeneratorExit:
+        pass
+    finally:
+        with sse_clients_lock:
+            if client_queue in sse_clients:
+                sse_clients.remove(client_queue)
+
+
+@app.route("/events", methods=["GET"])
+def events():
+    """SSE endpoint — streams real-time transaction events."""
+    client_queue: queue.Queue = queue.Queue(maxsize=256)
+    with sse_clients_lock:
+        sse_clients.append(client_queue)
+    return Response(
+        sse_stream(client_queue),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.route("/health", methods=["GET"])
@@ -88,13 +147,16 @@ def analyze():
             verdict = "dangerous"
             recommendation = "reject"
         
-        return jsonify({
+        result = {
             "address": address,
             "is_fraud": prediction["is_fraud"],
             "score": round(score, 2),
             "verdict": verdict,
             "recommendation": recommendation,
-        })
+        }
+
+        sse_publish("analyze", result)
+        return jsonify(result)
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -264,6 +326,8 @@ def review():
     if not sender:
         return jsonify({"error": "Missing 'sender' in proposal"}), 400
     
+    sender_ens = proposal.get("senderENS")  # ENS name resolved by SDK
+    
     try:
         # Step 1: ML Analysis on sender wallet
         try:
@@ -296,6 +360,7 @@ def review():
         guardian_payload = {
             "txHash": proposal.get("txHash"),
             "sender": sender,
+            "senderENS": sender_ens,
             "target": proposal.get("target"),
             "value": proposal.get("value"),
             "data": proposal.get("data"),
@@ -326,11 +391,15 @@ def review():
                 "message": "Failed to reach Guardian Network",
             }
         
-        return jsonify({
+        result = {
             "proposalId": guardian_status.get("proposalId"),
             "mlAnalysis": ml_analysis,
             "guardianStatus": guardian_status,
-        })
+            "senderENS": sender_ens,
+        }
+
+        sse_publish("review", result)
+        return jsonify(result)
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500

@@ -71,6 +71,7 @@ export interface ExecutionResult {
   vdfProof: VDFProof;
   frostSignature: FrostSignature;
   executionTime: number;
+  ensName?: string;               // Resolved ENS name for sender (if exists)
 }
 
 export interface ExecutionProgress {
@@ -123,6 +124,7 @@ export class SecurityMiddleware {
     chainId: number,
     txHash?: string,
     amount?: bigint,
+    ensName?: string,
   ): Promise<AgentAnalysis> {
     try {
       const response = await fetch(`${this.config.agentApiUrl}/review`, {
@@ -133,6 +135,7 @@ export class SecurityMiddleware {
           proposal: {
             txHash: txHash ?? this.generateTxHash({ target, data, value, amount: amount ?? value } as any),
             sender,
+            senderENS: ensName || null,
             target,
             value: value.toString(),
             data,
@@ -193,6 +196,19 @@ export class SecurityMiddleware {
     // Step 0.5: Route through LI.FI for cross-chain
     const routedIntent = await this.routeIntent(intent, onProgress);
 
+    // Step 0.55: Resolve ENS name for sender (non-blocking)
+    let ensName: string | undefined;
+    if (sender) {
+      try {
+        const resolved = await this.config.provider.lookupAddress(sender);
+        if (resolved) {
+          ensName = resolved;
+        }
+      } catch {
+        // ENS resolution is optional — continue without it
+      }
+    }
+
     // Step 0.6: Auto-analyze with ML Agent if not already flagged
     let agentAnalysis: AgentAnalysis | undefined;
     if (sender && routedIntent.mlBotFlagged === undefined) {
@@ -209,6 +225,7 @@ export class SecurityMiddleware {
         routedIntent.sourceChain,
         undefined, // txHash generated later
         routedIntent.amount,
+        ensName,
       );
 
       routedIntent.mlBotFlagged = agentAnalysis.flagged;
@@ -301,6 +318,7 @@ export class SecurityMiddleware {
       vdfProof,
       frostSignature,
       executionTime: Date.now() - startTime,
+      ensName,
     };
   }
 
