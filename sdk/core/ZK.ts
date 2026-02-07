@@ -157,8 +157,8 @@ export class ZKVoteClient {
       throw new Error(`Failed to submit proposal: ${error}`);
     }
 
-    const { proposalId } = await response.json();
-    return proposalId;
+    const data = await response.json() as { proposalId: string };
+    return data.proposalId;
   }
 
   /**
@@ -177,7 +177,7 @@ export class ZKVoteClient {
       throw new Error(`Failed to get vote status: ${response.statusText}`);
     }
 
-    return response.json();
+    return response.json() as Promise<VoteStatus>;
   }
 
   /**
@@ -244,7 +244,7 @@ export class ZKVoteClient {
       throw new Error(`FROST signature not available: ${response.statusText}`);
     }
 
-    return response.json();
+    return response.json() as Promise<FrostSignature>;
   }
 
   /**
@@ -285,7 +285,7 @@ export class ZKVoteClient {
       throw new Error(`Failed to get guardians: ${response.statusText}`);
     }
 
-    return response.json();
+    return response.json() as Promise<GuardianInfo[]>;
   }
 
   /**

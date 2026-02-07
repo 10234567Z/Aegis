@@ -90,6 +90,21 @@ export {
   type ExecutionStatus,
 } from './core/lifi';
 
+// ─── ENS Security Profiles ───
+
+export {
+  ENSSecurityClient,
+  createENSSecurityClient,
+  getENSSecurityClient,
+  formatSecurityProfile,
+  ENS_KEY_PREFIX,
+  ENS_KEYS,
+  DEFAULT_PROFILE,
+  type SecurityProfile,
+  type SecurityMode,
+  type ENSClientConfig,
+} from './core/ens';
+
 // ─── Cross-Chain Sync ───
 
 export {

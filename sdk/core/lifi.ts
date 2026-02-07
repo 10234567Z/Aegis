@@ -384,7 +384,7 @@ export class LiFiClient {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+      const error = await response.json().catch(() => ({})) as { code?: string; message?: string };
       throw new LiFiError(
         error.code || 'API_ERROR',
         error.message || `LI.FI API error: ${response.statusText}`,

@@ -27,6 +27,7 @@ import { SecurityContract, SecurityConfig, VDFProof, FrostSignature } from './co
 import { VDFClient, VDFRequest, VDFStatus } from './VDF';
 import { ZKVoteClient, VoteStatus } from './ZK';
 import { LiFiClient, LiFiConfig, Route } from './lifi';
+import { ENSSecurityClient, SecurityProfile } from './ens';
 
 // ─── Types ───
 
@@ -72,6 +73,7 @@ export interface ExecutionResult {
   frostSignature: FrostSignature;
   executionTime: number;
   ensName?: string;               // Resolved ENS name for sender (if exists)
+  ensSecurityProfile?: SecurityProfile; // User's ENS security profile (if exists)
 }
 
 export interface ExecutionProgress {
@@ -89,6 +91,7 @@ export class SecurityMiddleware {
   private vdfClient: VDFClient;
   private zkClient: ZKVoteClient;
   private lifiClient: LiFiClient;
+  private ensClient: ENSSecurityClient;
 
   constructor(config: MiddlewareConfig) {
     this.config = config;
@@ -108,6 +111,10 @@ export class SecurityMiddleware {
     });
 
     this.lifiClient = new LiFiClient(config.lifiConfig);
+
+    this.ensClient = new ENSSecurityClient({
+      provider: config.provider,
+    });
   }
 
   // ─── Agent Analysis ───
@@ -149,7 +156,10 @@ export class SecurityMiddleware {
         throw new Error(`Agent analysis failed: ${response.status}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as {
+        mlAnalysis?: { score?: number; flagged?: boolean; verdict?: string };
+        proposalId?: string;
+      };
       return {
         score: result.mlAnalysis?.score ?? 0,
         flagged: result.mlAnalysis?.flagged ?? false,
@@ -196,13 +206,27 @@ export class SecurityMiddleware {
     // Step 0.5: Route through LI.FI for cross-chain
     const routedIntent = await this.routeIntent(intent, onProgress);
 
-    // Step 0.55: Resolve ENS name for sender (non-blocking)
+    // Step 0.55: Resolve ENS name and fetch security profile for sender
     let ensName: string | undefined;
+    let ensSecurityProfile: SecurityProfile | undefined;
     if (sender) {
       try {
         const resolved = await this.config.provider.lookupAddress(sender);
         if (resolved) {
           ensName = resolved;
+
+          // Fetch user's ENS security profile
+          ensSecurityProfile = await this.ensClient.getSecurityProfile(resolved);
+
+          if (ensSecurityProfile.hasProfile) {
+            this.emitProgress(onProgress, {
+              stage: 'submitted',
+              message: `ENS security profile found for ${resolved} (mode: ${ensSecurityProfile.mode})`,
+            });
+
+            // Apply ENS security rules
+            await this.applyENSSecurityProfile(routedIntent, ensSecurityProfile, resolved, onProgress);
+          }
         }
       } catch {
         // ENS resolution is optional — continue without it
@@ -248,7 +272,7 @@ export class SecurityMiddleware {
     });
 
     // Step 1: Determine what's required based on ML bot flag
-    const requiresVDF = this.vdfClient.isVDFRequired(routedIntent.mlBotFlagged);
+    const requiresVDF = this.vdfClient.isVDFRequired(routedIntent.mlBotFlagged ?? false);
 
     if (requiresVDF) {
       this.emitProgress(onProgress, {
@@ -319,7 +343,94 @@ export class SecurityMiddleware {
       frostSignature,
       executionTime: Date.now() - startTime,
       ensName,
+      ensSecurityProfile,
     };
+  }
+
+  // ─── ENS Security Profile Enforcement ───
+
+  /**
+   * Apply user's ENS security profile to the transaction.
+   * Checks threshold, whitelist, and mode settings.
+   */
+  private async applyENSSecurityProfile(
+    intent: TransactionIntent,
+    profile: SecurityProfile,
+    ensName: string,
+    onProgress?: (progress: ExecutionProgress) => void,
+  ): Promise<void> {
+    // Check 1: User-defined threshold
+    if (profile.threshold > 0n && intent.amount > profile.threshold) {
+      this.emitProgress(onProgress, {
+        stage: 'submitted',
+        message: `⚠️ Amount (${ethers.formatEther(intent.amount)} ETH) exceeds your ENS threshold (${ethers.formatEther(profile.threshold)} ETH)`,
+      });
+
+      // Force ML flagging for user-defined large transactions
+      intent.mlBotFlagged = true;
+    }
+
+    // Check 2: Paranoid mode - whitelist only
+    if (profile.mode === 'paranoid' && profile.whitelist.length > 0) {
+      const isAllowed = await this.ensClient.isWhitelisted(ensName, intent.target);
+
+      if (!isAllowed) {
+        const targetName = await this.ensClient.lookupName(intent.target);
+        const targetLabel = targetName || intent.target.slice(0, 10) + '...';
+
+        throw new Error(
+          `ENS Security Profile Violation: Target "${targetLabel}" is not in your whitelist. ` +
+          `Allowed: ${profile.whitelist.join(', ')}`,
+        );
+      }
+
+      this.emitProgress(onProgress, {
+        stage: 'submitted',
+        message: `✓ Target is in your ENS whitelist`,
+      });
+    }
+
+    // Check 3: Strict mode - add extra delay
+    if (profile.mode === 'strict' && profile.delay > 0) {
+      this.emitProgress(onProgress, {
+        stage: 'submitted',
+        message: `Strict mode: ${profile.delay}s extra delay will be applied`,
+      });
+    }
+
+    // Check 4: Notify webhook if configured
+    if (profile.notifyUrl) {
+      this.notifyWebhook(profile.notifyUrl, intent, ensName).catch(() => {
+        // Non-blocking - don't fail if webhook fails
+      });
+    }
+  }
+
+  /**
+   * Send notification to user's configured webhook.
+   */
+  private async notifyWebhook(
+    url: string,
+    intent: TransactionIntent,
+    ensName: string,
+  ): Promise<void> {
+    try {
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'transaction_alert',
+          ensName,
+          target: intent.target,
+          amount: intent.amount.toString(),
+          sourceChain: intent.sourceChain,
+          destChain: intent.destChain,
+          timestamp: Date.now(),
+        }),
+      });
+    } catch {
+      // Silently fail - webhook is best-effort
+    }
   }
 
   // ─── LI.FI Cross-Chain Routing ───

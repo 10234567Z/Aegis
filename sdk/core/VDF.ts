@@ -114,8 +114,8 @@ export class VDFClient {
       throw new Error(`VDF request failed: ${error}`);
     }
 
-    const { jobId } = await response.json();
-    return jobId;
+    const data = await response.json() as { jobId: string };
+    return data.jobId;
   }
 
   /**
@@ -128,7 +128,7 @@ export class VDFClient {
       throw new Error(`Failed to get VDF status: ${response.statusText}`);
     }
 
-    return response.json();
+    return response.json() as Promise<VDFStatus>;
   }
 
   /**
@@ -196,7 +196,7 @@ export class VDFClient {
       throw new Error('Mock VDF not available (worker not in dev mode)');
     }
 
-    return response.json();
+    return response.json() as Promise<VDFProof>;
   }
 
   /**
