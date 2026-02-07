@@ -216,6 +216,7 @@ export function getChainName(chainId: number): string {
  * Pass --fast flag to any script or set FAST_MODE=1 env var.
  */
 export const FAST_MODE = process.argv.includes('--fast') || process.env.FAST_MODE === '1';
+export const LIVE_MODE = process.argv.includes('--live');
 
 /**
  * Delay execution for realistic pacing.
