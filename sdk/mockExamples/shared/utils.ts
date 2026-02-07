@@ -211,6 +211,49 @@ export function getChainName(chainId: number): string {
 
 // ─── Timing Utilities ───
 
+/**
+ * Check if running in fast mode (skip delays).
+ * Pass --fast flag to any script or set FAST_MODE=1 env var.
+ */
+export const FAST_MODE = process.argv.includes('--fast') || process.env.FAST_MODE === '1';
+
+/**
+ * Delay execution for realistic pacing.
+ * Skipped entirely in FAST_MODE.
+ */
+export function delay(ms: number): Promise<void> {
+  if (FAST_MODE) return Promise.resolve();
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Print a message with a typing/processing feel.
+ * Prints the message, then waits the specified delay.
+ */
+export async function printWithDelay(printFn: () => void, ms: number): Promise<void> {
+  printFn();
+  await delay(ms);
+}
+
+/**
+ * Simulate a progress bar for long operations (e.g. VDF computation).
+ * Prints incremental progress updates.
+ */
+export async function simulateProgress(
+  label: string,
+  steps: number = 5,
+  totalMs: number = 3000,
+): Promise<void> {
+  const stepMs = totalMs / steps;
+  for (let i = 1; i <= steps; i++) {
+    const pct = Math.round((i / steps) * 100);
+    const bar = '█'.repeat(i * 4) + '░'.repeat((steps - i) * 4);
+    process.stdout.write(`\r  ${COLORS.gray}>${COLORS.reset} ${label} [${bar}] ${pct}%`);
+    await delay(stepMs);
+  }
+  process.stdout.write('\n');
+}
+
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;

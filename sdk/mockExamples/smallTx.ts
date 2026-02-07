@@ -45,6 +45,8 @@ import {
   GUARDIAN_COUNT,
   GUARDIAN_THRESHOLD,
   runScript,
+  delay,
+  simulateProgress,
 } from './shared';
 
 import {
@@ -55,7 +57,6 @@ import {
   tallyVotes,
   createFROSTSignature,
   formatForSolidity,
-  MockGuardianNetwork,
 } from './shared/mockGuardians';
 
 // ─── Script Configuration ───
@@ -84,10 +85,12 @@ async function main() {
   printSuccess(`${GUARDIAN_COUNT} guardians initialized with FROST keys`);
   printKeyValue('Group Public Key', formatBytes32('0x' + network.groupPublicKey.toString('hex')));
 
+  await delay(500);
   printDivider();
 
   // ─── Step 1: Transaction Submission ───
   printStep(1, 'Transaction Submitted');
+  await delay(300);
 
   const tx = createMockTransaction({
     amount: SCENARIO.amount,
@@ -101,6 +104,7 @@ async function main() {
   printKeyValue('Chain', getChainName(tx.sourceChain));
   printKeyValue('TX Hash', formatBytes32(tx.txHash));
 
+  await delay(500);
   printDivider();
 
   // ─── Step 2: Security Checks ───
@@ -108,11 +112,14 @@ async function main() {
 
   // ML Bot analysis
   printSubStep('Running ML Bot analysis...');
+  await simulateProgress('Analyzing transaction', 4, 1500);
   const mlAnalysis = simulateMLBotAnalysis({ score: 15, verdict: 'safe' });
   printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (low suspicion)`);
   printKeyValue('ML Bot Verdict', mlAnalysis.verdict);
   printKeyValue('Flag Threshold', `${ML_BOT_THRESHOLD}/100`);
   printSuccess('Transaction NOT flagged by ML Bot');
+
+  await delay(400);
 
   // Check VDF requirement
   const vdfRequired = isVDFRequired(mlAnalysis.flagged);
@@ -123,11 +130,13 @@ async function main() {
     printSuccess('VDF NOT REQUIRED - ML Bot score below threshold');
   }
 
+  await delay(500);
   printDivider();
 
   // ─── Step 3: Guardian Voting (Mandatory) ───
   printStep(3, 'Guardian Voting (ZK Commit-Reveal)');
   printInfo('Guardian voting is MANDATORY for all transactions');
+  await delay(400);
 
   // Generate proposal ID
   const proposalId = generateProposalId(`withdrawal-${tx.txHash}`);
@@ -141,26 +150,31 @@ async function main() {
   );
 
   // Phase 3a: Commit Phase
+  await delay(500);
   printSubStep('Phase 1: Commitment Submission');
   const commitments = simulateCommitPhase(decisions);
 
   for (const commitment of commitments) {
     const guardian = network.guardians[commitment.guardianId];
+    await delay(200);
     printSubStep(`  ${guardian.name} submitted commitment`);
   }
   printSuccess(`${commitments.length}/${GUARDIAN_COUNT} commitments received`);
 
   // Phase 3b: Reveal Phase
+  await delay(500);
   printSubStep('Phase 2: Vote Reveal with ZK Proofs');
   const reveals = simulateRevealPhase(commitments, decisions);
 
   for (const reveal of reveals) {
     const guardian = network.guardians[reveal.guardianId];
     const voteStr = reveal.vote === 1 ? 'APPROVE' : reveal.vote === 0 ? 'REJECT' : 'ABSTAIN';
+    await delay(250);
     printSubStep(`  ${guardian.name} revealed: ${voteStr} (ZK proof verified)`);
   }
 
   // Phase 3c: Tally
+  await delay(400);
   printSubStep('Phase 3: Vote Tally');
   const tally = tallyVotes(decisions);
   printVoteResult(tally.approve, tally.reject, tally.abstain);
@@ -172,6 +186,7 @@ async function main() {
     printFailure(`Threshold NOT reached: ${tally.approve}/${GUARDIAN_THRESHOLD} approvals`);
   }
 
+  await delay(500);
   printDivider();
 
   // ─── Step 4: FROST Threshold Signature ───
@@ -194,9 +209,13 @@ async function main() {
   // Create message to sign (proposal ID hash)
   const message = Buffer.from(proposalId.slice(2), 'hex');
 
+  await delay(600);
   printSubStep('Round 1: Generating nonce commitments...');
+  await delay(800);
   printSubStep('Round 2: Generating signature shares...');
+  await delay(600);
   printSubStep('Aggregating signature...');
+  await delay(400);
 
   // Create actual FROST signature using real crypto
   const signature = await createFROSTSignature(network, message, approvingGuardians);
@@ -206,19 +225,27 @@ async function main() {
   printKeyValue('R (commitment)', formatBytes32(soliditySig.R));
   printKeyValue('z (scalar)', formatBytes32(soliditySig.z));
 
+  await delay(500);
   printDivider();
 
   // ─── Step 5: Execution ───
   printStep(5, 'Transaction Execution');
 
   printSubStep('Verification checks:');
+  await delay(300);
   printSuccess('Guardian vote passed (8/7 threshold)');
+  await delay(200);
   printSuccess('FROST signature valid');
+  await delay(200);
   printSuccess('VDF not required (ML Bot score below threshold)');
+  await delay(200);
   printSuccess('Sender not blacklisted');
+  await delay(200);
   printSuccess('Protocol not paused');
 
+  await delay(500);
   printSubStep('Executing transaction...');
+  await delay(1500);
 
   // Simulate successful execution
   const executionTxHash = '0x' + Buffer.from(Array(32).fill(0).map(() =>
@@ -228,6 +255,7 @@ async function main() {
   printKeyValue('Execution TX', formatBytes32(executionTxHash));
 
   // ─── Final Result ───
+  await delay(500);
   printFinalResult(true, 'TRANSACTION APPROVED AND EXECUTED');
 
   // Summary

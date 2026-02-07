@@ -53,6 +53,8 @@ import {
   GUARDIAN_THRESHOLD,
   REJECTION_THRESHOLD,
   runScript,
+  delay,
+  simulateProgress,
 } from './shared';
 
 import {
@@ -93,10 +95,12 @@ async function main() {
   printSuccess(`${GUARDIAN_COUNT} guardians initialized with FROST keys`);
   printKeyValue('Group Public Key', formatBytes32('0x' + network.groupPublicKey.toString('hex')));
 
+  await delay(500);
   printDivider();
 
   // ─── Step 1: Transaction Submission ───
   printStep(1, 'Suspicious Transaction Submitted');
+  await delay(300);
 
   const tx = createMockTransaction({
     amount: SCENARIO.amount,
@@ -110,6 +114,7 @@ async function main() {
   printKeyValue('Chain', getChainName(tx.sourceChain));
   printKeyValue('TX Hash', formatBytes32(tx.txHash));
 
+  await delay(500);
   printDivider();
 
   // ─── Step 2: Security Checks ───
@@ -117,30 +122,40 @@ async function main() {
 
   // ML Bot analysis - ATTACK DETECTED
   printSubStep('Running ML Bot analysis...');
+  await simulateProgress('Deep pattern analysis', 6, 2500);
   const mlAnalysis = simulateMLBotAnalysis({ score: SCENARIO.mlBotScore, verdict: 'dangerous' });
   printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (CRITICAL)`);
   printKeyValue('ML Bot Verdict', mlAnalysis.verdict);
   printKeyValue('Flag Threshold', `${ML_BOT_THRESHOLD}/100`);
+  await delay(300);
   printFailure(`ATTACK PATTERN DETECTED: ${SCENARIO.attackType}`);
 
+  await delay(500);
   printSubStep('ML Bot Evidence:');
+  await delay(300);
   printSubStep('  - Flash loan initiated in same block');
+  await delay(200);
   printSubStep('  - Price manipulation detected on oracle');
+  await delay(200);
   printSubStep('  - Withdrawal to new address (created 2 blocks ago)');
+  await delay(200);
   printSubStep('  - Similar pattern to known exploits');
 
+  await delay(400);
   printWarning(`Transaction FLAGGED by ML Bot (score ${mlAnalysis.score} >= threshold ${ML_BOT_THRESHOLD})`);
 
   // Check VDF requirement
   const vdfRequired = isVDFRequired(mlAnalysis.flagged);
 
   if (vdfRequired) {
+    await delay(400);
     printWarning('VDF TRIGGERED - ML Bot flagged as dangerous');
     printKeyValue('VDF Iterations', VDF_ITERATIONS.toLocaleString());
     printKeyValue('VDF Delay', `${VDF_DELAY_SECONDS / 60} minutes (fixed)`);
     printInfo('VDF delay buys time for guardian review');
   }
 
+  await delay(500);
   printDivider();
 
   // ─── Step 3: VDF Computation Started ───
@@ -148,11 +163,13 @@ async function main() {
 
   if (vdfRequired) {
     printSubStep('VDF computation starting on protocol worker...');
+    await delay(400);
     printKeyValue('Challenge', formatBytes32(tx.txHash));
     printKeyValue('Iterations', VDF_ITERATIONS.toLocaleString());
     printKeyValue('Expected completion', `${VDF_DELAY_SECONDS / 60} minutes`);
     printInfo('VDF buys time for guardians to review');
     printWarning('Attacker must wait - cannot bypass VDF');
+    await simulateProgress('VDF computing (guardians reviewing)', 5, 3000);
   }
 
   printDivider();
@@ -161,6 +178,7 @@ async function main() {
   printStep(4, 'Guardian Voting (Attack Review)');
   printWarning('HIGH PRIORITY: ML Bot score 95/100');
   printInfo('Guardians reviewing attack evidence...');
+  await delay(600);
 
   // Generate proposal ID
   const proposalId = generateProposalId(`attack-review-${tx.txHash}`);
@@ -174,16 +192,19 @@ async function main() {
   );
 
   // Phase 4a: Commit Phase
+  await delay(500);
   printSubStep('Phase 1: Commitment Submission');
   const commitments = simulateCommitPhase(decisions);
 
   for (const commitment of commitments) {
     const guardian = network.guardians[commitment.guardianId];
+    await delay(250);
     printSubStep(`  ${guardian.name} submitted commitment`);
   }
   printSuccess(`${commitments.length}/${GUARDIAN_COUNT} commitments received`);
 
   // Phase 4b: Reveal Phase
+  await delay(500);
   printSubStep('Phase 2: Vote Reveal with ZK Proofs');
   const reveals = simulateRevealPhase(commitments, decisions);
 
@@ -191,10 +212,12 @@ async function main() {
     const guardian = network.guardians[reveal.guardianId];
     const voteStr = reveal.vote === 1 ? 'APPROVE' : reveal.vote === 0 ? 'REJECT' : 'ABSTAIN';
     const emoji = reveal.vote === 0 ? '(attack confirmed)' : '';
+    await delay(300);
     printSubStep(`  ${guardian.name} revealed: ${voteStr} ${emoji}`);
   }
 
   // Phase 4c: Tally
+  await delay(500);
   printSubStep('Phase 3: Vote Tally');
   const tally = tallyVotes(decisions);
   printVoteResult(tally.approve, tally.reject, tally.abstain);
@@ -202,6 +225,7 @@ async function main() {
   const voteApproved = isApprovalReached(tally.approve);
   const voteRejected = isRejectionReached(tally.reject);
 
+  await delay(400);
   if (voteRejected) {
     printFailure(`REJECTION threshold reached: ${tally.reject}/${REJECTION_THRESHOLD} rejections`);
     printWarning('Guardians have confirmed this is an attack');
@@ -211,6 +235,7 @@ async function main() {
     printInfo('No threshold reached - vote inconclusive');
   }
 
+  await delay(500);
   printDivider();
 
   // ─── Step 5: FROST Rejection Signature ───
@@ -236,9 +261,13 @@ async function main() {
     'hex'
   );
 
+  await delay(600);
   printSubStep('Round 1: Generating nonce commitments...');
+  await delay(1000);
   printSubStep('Round 2: Generating signature shares...');
+  await delay(800);
   printSubStep('Aggregating rejection signature...');
+  await delay(500);
 
   // Create actual FROST signature using real crypto
   const signature = await createFROSTSignature(network, rejectionMessage, rejectingGuardians);
@@ -248,22 +277,31 @@ async function main() {
   printKeyValue('R (commitment)', formatBytes32(soliditySig.R));
   printKeyValue('z (scalar)', formatBytes32(soliditySig.z));
 
+  await delay(500);
   printDivider();
 
   // ─── Step 6: Transaction Blocked ───
   printStep(6, 'Transaction Blocked');
 
   printSubStep('Security enforcement:');
+  await delay(400);
   printFailure('Guardian vote: REJECTED (7/4 rejection threshold)');
+  await delay(300);
   printSuccess('FROST rejection signature: VALID');
+  await delay(300);
   printInfo('VDF computation: CANCELLED (not needed)');
 
+  await delay(500);
   printSubStep('Actions taken:');
+  await delay(300);
   printFailure('Transaction BLOCKED - cannot execute');
+  await delay(200);
   printWarning('Sender address flagged for monitoring');
+  await delay(200);
   printInfo('Attack evidence logged for analysis');
 
   // ─── Final Result ───
+  await delay(500);
   printFinalResult(false, 'TRANSACTION BLOCKED - ATTACK PREVENTED');
 
   // Summary

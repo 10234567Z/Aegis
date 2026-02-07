@@ -50,6 +50,8 @@ import {
   GUARDIAN_COUNT,
   GUARDIAN_THRESHOLD,
   runScript,
+  delay,
+  simulateProgress,
 } from './shared';
 
 import {
@@ -88,10 +90,12 @@ async function main() {
   printSuccess(`${GUARDIAN_COUNT} guardians initialized with FROST keys`);
   printKeyValue('Group Public Key', formatBytes32('0x' + network.groupPublicKey.toString('hex')));
 
+  await delay(500);
   printDivider();
 
   // ─── Step 1: Transaction Submission ───
   printStep(1, 'Transaction Submitted');
+  await delay(300);
 
   const tx = createMockTransaction({
     amount: SCENARIO.amount,
@@ -105,6 +109,7 @@ async function main() {
   printKeyValue('Chain', getChainName(tx.sourceChain));
   printKeyValue('TX Hash', formatBytes32(tx.txHash));
 
+  await delay(500);
   printDivider();
 
   // ─── Step 2: Security Checks ───
@@ -112,11 +117,14 @@ async function main() {
 
   // ML Bot analysis
   printSubStep('Running ML Bot analysis...');
+  await simulateProgress('Analyzing transaction patterns', 5, 2000);
   const mlAnalysis = simulateMLBotAnalysis({ score: 75, verdict: 'suspicious' });
   printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (suspicious pattern)`);
   printKeyValue('ML Bot Verdict', mlAnalysis.verdict);
   printKeyValue('Flag Threshold', `${ML_BOT_THRESHOLD}/100`);
   printWarning(`Transaction FLAGGED by ML Bot (score ${mlAnalysis.score} >= threshold ${ML_BOT_THRESHOLD})`);
+
+  await delay(500);
 
   // Check VDF requirement
   const vdfRequired = isVDFRequired(mlAnalysis.flagged);
@@ -129,6 +137,7 @@ async function main() {
     printSuccess('VDF NOT REQUIRED - ML Bot score below threshold');
   }
 
+  await delay(500);
   printDivider();
 
   // ─── Step 3: VDF Computation Started ───
@@ -136,11 +145,14 @@ async function main() {
 
   if (vdfRequired) {
     printSubStep('VDF computation starting on protocol worker...');
+    await delay(400);
     printKeyValue('Challenge', formatBytes32(tx.txHash));
     printKeyValue('Iterations', VDF_ITERATIONS.toLocaleString());
     printKeyValue('Expected completion', `${VDF_DELAY_SECONDS / 60} minutes`);
+    await delay(300);
     printInfo('VDF runs IN PARALLEL with guardian voting');
     printInfo('If guardians approve first, VDF will be bypassed');
+    await simulateProgress('VDF computing (will be bypassed)', 5, 3000);
   }
 
   printDivider();
@@ -148,6 +160,7 @@ async function main() {
   // ─── Step 4: Guardian Voting (In Parallel) ───
   printStep(4, 'Guardian Voting (ZK Commit-Reveal)');
   printInfo('Guardian voting is MANDATORY - runs parallel to VDF');
+  await delay(400);
 
   // Generate proposal ID
   const proposalId = generateProposalId(`large-withdrawal-${tx.txHash}`);
@@ -161,26 +174,31 @@ async function main() {
   );
 
   // Phase 4a: Commit Phase
+  await delay(500);
   printSubStep('Phase 1: Commitment Submission');
   const commitments = simulateCommitPhase(decisions);
 
   for (const commitment of commitments) {
     const guardian = network.guardians[commitment.guardianId];
+    await delay(250);
     printSubStep(`  ${guardian.name} submitted commitment`);
   }
   printSuccess(`${commitments.length}/${GUARDIAN_COUNT} commitments received`);
 
   // Phase 4b: Reveal Phase
+  await delay(500);
   printSubStep('Phase 2: Vote Reveal with ZK Proofs');
   const reveals = simulateRevealPhase(commitments, decisions);
 
   for (const reveal of reveals) {
     const guardian = network.guardians[reveal.guardianId];
     const voteStr = reveal.vote === 1 ? 'APPROVE' : reveal.vote === 0 ? 'REJECT' : 'ABSTAIN';
+    await delay(300);
     printSubStep(`  ${guardian.name} revealed: ${voteStr} (ZK proof verified)`);
   }
 
   // Phase 4c: Tally
+  await delay(500);
   printSubStep('Phase 3: Vote Tally');
   const tally = tallyVotes(decisions);
   printVoteResult(tally.approve, tally.reject, tally.abstain);
@@ -192,6 +210,7 @@ async function main() {
     printFailure(`Threshold NOT reached: ${tally.approve}/${GUARDIAN_THRESHOLD} approvals`);
   }
 
+  await delay(500);
   printDivider();
 
   // ─── Step 5: FROST Threshold Signature ───
@@ -214,9 +233,13 @@ async function main() {
   // Create message to sign (proposal ID hash)
   const message = Buffer.from(proposalId.slice(2), 'hex');
 
+  await delay(600);
   printSubStep('Round 1: Generating nonce commitments...');
+  await delay(1000);
   printSubStep('Round 2: Generating signature shares...');
+  await delay(800);
   printSubStep('Aggregating signature...');
+  await delay(500);
 
   // Create actual FROST signature using real crypto
   const signature = await createFROSTSignature(network, message, approvingGuardians);
@@ -226,40 +249,45 @@ async function main() {
   printKeyValue('R (commitment)', formatBytes32(soliditySig.R));
   printKeyValue('z (scalar)', formatBytes32(soliditySig.z));
 
+  await delay(500);
   printDivider();
 
   // ─── Step 6: VDF Bypass ───
   printStep(6, 'VDF Bypass Decision');
+  await delay(400);
 
   printSubStep('Guardian approval detected BEFORE VDF completion');
+  await delay(600);
   printInfo('VDF computation cancelled - not needed');
 
-  // Create zero proof (bypass proof)
-  const zeroProof = {
-    output: '0x' + '0'.repeat(64),
-    proof: '0x',
-    iterations: 0,
-  };
-
+  await delay(400);
   printKeyValue('VDF Proof Type', 'Zero Proof (bypass)');
   printKeyValue('Iterations', '0 (bypassed)');
   printSuccess('VDF bypassed via guardian approval');
 
   printInfo(`User saved ${VDF_DELAY_SECONDS / 60} minutes of waiting time`);
 
+  await delay(500);
   printDivider();
 
   // ─── Step 7: Execution ───
   printStep(7, 'Transaction Execution');
 
   printSubStep('Verification checks:');
+  await delay(300);
   printSuccess('Guardian vote passed (7/7 threshold)');
+  await delay(200);
   printSuccess('FROST signature valid');
+  await delay(200);
   printSuccess('VDF bypassed with zero proof + FROST sig');
+  await delay(200);
   printSuccess('Sender not blacklisted');
+  await delay(200);
   printSuccess('Protocol not paused');
 
+  await delay(500);
   printSubStep('Executing transaction...');
+  await delay(2000);
 
   // Simulate successful execution
   const executionTxHash = '0x' + Buffer.from(Array(32).fill(0).map(() =>
@@ -269,6 +297,7 @@ async function main() {
   printKeyValue('Execution TX', formatBytes32(executionTxHash));
 
   // ─── Final Result ───
+  await delay(500);
   printFinalResult(true, 'TRANSACTION APPROVED AND EXECUTED');
 
   // Summary
