@@ -2,7 +2,7 @@
  * Use Case 1: Small TX Same-Chain Pass
  *
  * Demonstrates: A small, clean transaction on the same chain.
- * - ML Bot: Score 15/100 → NOT flagged (below threshold 70)
+ * - ML Bot: Score 15/100 → NOT flagged (below threshold 50)
  * - Guardian voting: MANDATORY (8 approve, 1 reject, 1 abstain)
  * - VDF: NOT triggered (ML Bot did not flag)
  * - Result: PASS (immediate execution after guardian approval)

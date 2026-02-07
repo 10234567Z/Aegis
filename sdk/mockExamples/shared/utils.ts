@@ -127,7 +127,7 @@ export function generateAddress(): string {
  */
 export interface MockAgentAnalysis {
   score: number;        // 0-100 risk score
-  flagged: boolean;     // true if score > ML_BOT_THRESHOLD (70)
+  flagged: boolean;     // true if score >= ML_BOT_THRESHOLD (50)
   verdict: string;      // 'safe' | 'suspicious' | 'dangerous'
 }
 
@@ -140,7 +140,7 @@ export function simulateMLBotAnalysis(params: {
   verdict?: string;
 }): MockAgentAnalysis {
   const { score } = params;
-  const flagged = score > ML_BOT_THRESHOLD;
+  const flagged = score >= ML_BOT_THRESHOLD;
   const verdict = params.verdict ?? (score <= 25 ? 'safe' : score <= 60 ? 'suspicious' : 'dangerous');
   return { score, flagged, verdict };
 }

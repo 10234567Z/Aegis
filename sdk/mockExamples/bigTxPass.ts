@@ -2,7 +2,7 @@
  * Use Case 2: Big TX Slow Pass (Same-Chain)
  *
  * Demonstrates: A large transaction flagged by ML Bot that passes via guardian approval.
- * - ML Bot: Score 75/100 → FLAGGED (exceeds threshold 70)
+ * - ML Bot: Score 75/100 → FLAGGED (exceeds threshold 50)
  * - Guardian voting: MANDATORY (7 approve, 2 reject, 1 abstain)
  * - VDF: TRIGGERED (ML Bot flagged) → 30 min delay, 300M iterations
  * - VDF Outcome: BYPASSED (guardian approval came first)
@@ -116,7 +116,7 @@ async function main() {
   printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (suspicious pattern)`);
   printKeyValue('ML Bot Verdict', mlAnalysis.verdict);
   printKeyValue('Flag Threshold', `${ML_BOT_THRESHOLD}/100`);
-  printWarning(`Transaction FLAGGED by ML Bot (score ${mlAnalysis.score} > threshold ${ML_BOT_THRESHOLD})`);
+  printWarning(`Transaction FLAGGED by ML Bot (score ${mlAnalysis.score} >= threshold ${ML_BOT_THRESHOLD})`);
 
   // Check VDF requirement
   const vdfRequired = isVDFRequired(mlAnalysis.flagged);
@@ -275,7 +275,7 @@ async function main() {
   console.log('Summary:');
   printKeyValue('Amount', `${formatEth(tx.amount)} (${formatUSD(tx.amount)})`);
   printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (threshold: ${ML_BOT_THRESHOLD})`);
-  printKeyValue('VDF Triggered', `Yes (ML score ${mlAnalysis.score} > threshold ${ML_BOT_THRESHOLD})`);
+  printKeyValue('VDF Triggered', `Yes (ML score ${mlAnalysis.score} >= threshold ${ML_BOT_THRESHOLD})`);
   printKeyValue('VDF Outcome', 'BYPASSED (guardian approval)');
   printKeyValue('Guardian Vote', `${tally.approve} approve, ${tally.reject} reject, ${tally.abstain} abstain`);
   printKeyValue('FROST Signature', 'Valid');

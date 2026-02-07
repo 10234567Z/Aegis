@@ -129,7 +129,7 @@ async function main() {
   printSubStep('  - Withdrawal to new address (created 2 blocks ago)');
   printSubStep('  - Similar pattern to known exploits');
 
-  printWarning(`Transaction FLAGGED by ML Bot (score ${mlAnalysis.score} > threshold ${ML_BOT_THRESHOLD})`);
+  printWarning(`Transaction FLAGGED by ML Bot (score ${mlAnalysis.score} >= threshold ${ML_BOT_THRESHOLD})`);
 
   // Check VDF requirement
   const vdfRequired = isVDFRequired(mlAnalysis.flagged);
@@ -271,7 +271,7 @@ async function main() {
   printKeyValue('Amount', `${formatEth(tx.amount)} (${formatUSD(tx.amount)})`);
   printKeyValue('Attack Type', SCENARIO.attackType);
   printKeyValue('ML Bot Score', `${mlAnalysis.score}/100 (threshold: ${ML_BOT_THRESHOLD})`);
-  printKeyValue('VDF Triggered', `Yes (ML score ${mlAnalysis.score} > ${ML_BOT_THRESHOLD}) - cancelled after rejection`);
+  printKeyValue('VDF Triggered', `Yes (ML score ${mlAnalysis.score} >= ${ML_BOT_THRESHOLD}) - cancelled after rejection`);
   printKeyValue('Guardian Vote', `${tally.approve} approve, ${tally.reject} reject, ${tally.abstain} abstain`);
   printKeyValue('FROST Signature', 'Rejection signature valid');
   printKeyValue('Outcome', 'BLOCKED - Funds protected');
