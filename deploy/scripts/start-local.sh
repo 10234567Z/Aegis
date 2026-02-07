@@ -3,10 +3,11 @@
 #
 # This script starts:
 #   1. Hardhat local node
-#   2. Deploys contracts
-#   3. Agent (ML analysis)
-#   4. Guardian Mock (FROST voting)
-#   5. VDF Worker (time-lock proofs)
+#   2. Agent (ML analysis)
+#   3. Guardian Mock (FROST voting)
+#
+# For deploying contracts, run separately:
+#   npm run deploy:local
 #
 # Usage:
 #   ./scripts/start-local.sh
@@ -59,31 +60,21 @@ cleanup() {
 trap cleanup EXIT
 
 # 1. Start Hardhat node
-echo -e "${GREEN}1/5 Starting Hardhat node...${NC}"
+echo -e "${GREEN}1/3 Starting Hardhat node...${NC}"
 cd "$DEPLOY_DIR"
 npx hardhat node > "$LOG_DIR/hardhat.log" 2>&1 &
 sleep 3
 echo "    Hardhat node running on http://localhost:8545"
 
-# 2. Deploy contracts
-echo -e "${GREEN}2/5 Deploying contracts...${NC}"
-./scripts/setup-contracts.sh > /dev/null 2>&1
-npx hardhat run scripts/deploy-local.ts --network localhost
-echo ""
-
-# 3. Update SDK addresses
-echo -e "${GREEN}3/5 Updating SDK addresses...${NC}"
-npx ts-node scripts/update-sdk-addresses.ts
-
-# 4. Start Agent
-echo -e "${GREEN}4/5 Starting ML Agent...${NC}"
+# 2. Start Agent
+echo -e "${GREEN}2/3 Starting ML Agent...${NC}"
 cd "$ROOT_DIR/agent"
-python main.py > "$LOG_DIR/agent.log" 2>&1 &
+uv run main.py > "$LOG_DIR/agent.log" 2>&1 &
 sleep 2
 echo "    Agent running on http://localhost:5000"
 
-# 5. Start Guardian Mock
-echo -e "${GREEN}5/5 Starting Guardian Mock...${NC}"
+# 3. Start Guardian Mock
+echo -e "${GREEN}3/3 Starting Guardian Mock...${NC}"
 cd "$ROOT_DIR/guardian-mock"
 npm install > /dev/null 2>&1
 npm run start > "$LOG_DIR/guardian.log" 2>&1 &

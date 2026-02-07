@@ -17,8 +17,11 @@ import {
   createVotingDecisions,
   simulateFullVotingFlow,
   MockGuardianNetwork,
-} from '../../sdk/mockExamples/shared/mockGuardians.js';
-import { GUARDIAN_COUNT, GUARDIAN_THRESHOLD } from '../../sdk/core/constants.js';
+} from './mockFrost.ts';
+
+// Guardian network constants
+const GUARDIAN_COUNT = 10;
+const GUARDIAN_THRESHOLD = 7;
 
 const app = express();
 app.use(cors());
@@ -196,17 +199,13 @@ async function simulateVoting(proposal: Proposal): Promise<void> {
     rejectCount = 8;
     approveCount = 1;
   } else if (proposal.mlScore >= 50) {
-    // Medium risk: mixed but lean reject
-    rejectCount = 5;
-    approveCount = 4;
-  } else if (proposal.mlScore >= 25) {
-    // Low-medium risk: mixed but lean approve
-    approveCount = 6;
-    rejectCount = 3;
+    // Medium risk: reject
+    rejectCount = 6;
+    approveCount = 3;
   } else {
-    // Low risk: mostly approve
-    approveCount = 9;
-    rejectCount = 0;
+    // Low risk: approve (threshold met)
+    approveCount = 8;
+    rejectCount = 1;
   }
 
   const abstainCount = GUARDIAN_COUNT - approveCount - rejectCount;

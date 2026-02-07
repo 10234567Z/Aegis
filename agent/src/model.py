@@ -72,29 +72,29 @@ class FraudDetector:
     
     def _preprocess(self, features: dict[str, Any]) -> pd.DataFrame:
         """Preprocess features for model input."""
-        # Create DataFrame with correct column order
-        df = pd.DataFrame([features])[FEATURE_COLUMNS]
-        
-        # Handle categorical columns
+        # Handle categorical columns first (encode to numeric before DataFrame)
         cat_cols = [" ERC20 most sent token type", " ERC20_most_rec_token_type"]
+        processed = features.copy()
         for col in cat_cols:
-            if col in df.columns:
-                val = str(df[col].iloc[0])
-                if col in self.label_encoders:
-                    # Use encoder if available
-                    try:
-                        df[col] = self.label_encoders[col].transform([val])[0]
-                    except ValueError:
-                        # Unknown category - use 0
-                        df[col] = 0
-                else:
-                    # Simple hash encoding as fallback
-                    df[col] = hash(val) % 1000
+            val = str(processed.get(col, "None"))
+            if col in self.label_encoders:
+                try:
+                    processed[col] = float(self.label_encoders[col].transform([val])[0])
+                except ValueError:
+                    processed[col] = 0.0
+            else:
+                processed[col] = float(hash(val) % 1000)
         
-        # Scale numerical columns
-        num_cols = [c for c in df.columns if c not in cat_cols]
+        # Now all values are numeric - create DataFrame
+        df = pd.DataFrame([processed])[FEATURE_COLUMNS]
+        df = df.astype(float)
+        
+        # Reorder to match scaler's training column order, then scale
         if self.scaler is not None:
-            df[num_cols] = self.scaler.transform(df[num_cols])
+            scaler_cols = list(self.scaler.feature_names_in_)
+            df = df.reindex(columns=scaler_cols)
+            scaled = self.scaler.transform(df.values)
+            df = pd.DataFrame(scaled, columns=scaler_cols)
         
         return df
     
@@ -119,7 +119,12 @@ class FraudDetector:
         
         df = self._preprocess(features)
         
-        prob = self.model.predict_proba(df)[0, 1]
+        # XGBoost 3.x + Pandas 3.0: DMatrix doesn't auto-read column names
+        # Build DMatrix manually with feature names
+        feature_names = list(df.columns)
+        dmatrix = xgb.DMatrix(df.values, feature_names=feature_names)
+        raw_pred = self.model.get_booster().predict(dmatrix)
+        prob = float(raw_pred[0])
         is_fraud = prob >= 0.5
         
         # Confidence levels

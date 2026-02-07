@@ -10,7 +10,9 @@
     "deploy:sepolia": "hardhat run scripts/deploy-local.ts --network sepolia",
     "update-sdk": "ts-node scripts/update-sdk-addresses.ts",
     "start": "./scripts/start-local.sh",
-    "test": "hardhat test"
+    "start:full": "./scripts/start-local.sh && npm run deploy:local",
+    "test": "hardhat test",
+    "test:integration": "hardhat run scripts/test-integration.ts --network localhost"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",

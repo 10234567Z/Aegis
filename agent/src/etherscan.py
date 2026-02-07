@@ -6,20 +6,23 @@ import os
 import requests
 from typing import Any
 
-ETHERSCAN_API_URL = "https://api.etherscan.io/api"
+# Etherscan V2 API endpoint
+ETHERSCAN_API_URL = "https://api.etherscan.io/v2/api"
 
 
 class EtherscanClient:
     """Client for Etherscan API."""
     
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, chain_id: int = 1):
         self.api_key = api_key or os.getenv("ETHERSCAN_API_KEY", "")
+        self.chain_id = chain_id
         if not self.api_key:
             print("Warning: No ETHERSCAN_API_KEY set. Rate limits will be strict.")
     
     def _request(self, params: dict[str, Any]) -> dict[str, Any]:
         """Make a request to Etherscan API."""
         params["apikey"] = self.api_key
+        params["chainid"] = self.chain_id
         response = requests.get(ETHERSCAN_API_URL, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
