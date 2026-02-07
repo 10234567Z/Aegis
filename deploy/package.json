@@ -12,7 +12,8 @@
     "start": "./scripts/start-local.sh",
     "start:full": "./scripts/start-local.sh && npm run deploy:local",
     "test": "hardhat test",
-    "test:integration": "hardhat run scripts/test-integration.ts --network localhost"
+    "test:integration": "hardhat run scripts/test-integration.ts --network localhost",
+    "test:e2e": "hardhat run scripts/test-e2e.ts --network localhost"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",

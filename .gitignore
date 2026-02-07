@@ -13,5 +13,5 @@ deploy/typechain-types/
 deploy/deployments/
 deploy/node_modules/
 deploy/.env
-
 .env
+test-*
