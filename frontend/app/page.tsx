@@ -29,7 +29,7 @@ export default function MainPage() {
                 TX Explorer
               </Link>
               <a
-                href="https://github.com/harsh-aegis/DeFiGuardian"
+                href="https://github.com/10234567Z/Aegis"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center rounded-xl border border-border text-white px-7 py-3.5 text-base font-medium hover:bg-input transition-colors"
