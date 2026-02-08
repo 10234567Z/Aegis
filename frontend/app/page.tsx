@@ -14,12 +14,12 @@ export default function MainPage() {
             <h1 className="text-white text-4xl md:text-6xl lg:text-7xl font-bold leading-[1.1] tracking-[-0.03em] mb-6">
               Security that moves
               <br />
-              <span className="text-brand">at the speed of chain.</span>
+              <span className="text-brand">at the speed of chain</span>
             </h1>
             <p className="text-muted text-lg md:text-xl max-w-[560px] mx-auto leading-relaxed mb-10">
-              AI-powered protection for every contract interaction. We detect risk, trigger
-              VDF and FROST verification when it matters, and give you a single dashboard
-              to stay in control.
+              AI-powered protection for every contract interaction.
+              <br />
+              We detect risk, trigger VDF and FROST verification when it matters, and give you a single dashboard to stay in control.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <Link
@@ -39,6 +39,9 @@ export default function MainPage() {
             </div>
           </div>
         </main>
+        <footer className="px-4 py-8 text-center">
+          <p className="text-muted text-sm">The best hack is the one that never happens.</p>
+        </footer>
       </div>
     </div>
   );
