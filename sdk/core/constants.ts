@@ -25,8 +25,8 @@ export const PROTOCOL_ADDRESSES: Record<number, {
   },
   // Sepolia Testnet
   11155111: {
-    middleware: '0x1786281baeC0A2ab751c6931F4d593Bb71AF347a',
-    registry: '0xF4627506f27C491DA39d0d8a128BD371F0493D9b',
+    middleware: '0x8A4364c08147b1Ec0025e7B1e848BF675f9Dc7b9',
+    registry: '0x702e8307Bc9c8EC7489C6f9e5562EdA44bB9fB7d',
   },
   // Local development (Hardhat)
   31337: {

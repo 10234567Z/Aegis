@@ -78,6 +78,7 @@ import {
 
 import { ensureServices, getLiveConfig, printLiveModeBanner, LiveConfig } from './shared/liveMode';
 import { liveMLAnalysis, liveGuardianVoting, liveVDFComputation } from './shared/liveClients';
+import { SEPOLIA_MODE, getSDKConfig, printSDKModeBanner, executeViaSDK, checkOnChainStatus, buildIntent, SDKConfig } from './shared/sdkMode';
 
 // ─── Script Configuration ───
 
@@ -101,6 +102,41 @@ const SCENARIO = {
 
 async function main() {
   printHeader(`USE CASE 5: ${SCENARIO.name.toUpperCase()}`);
+
+  // ─── Sepolia SDK Mode ───
+  if (SEPOLIA_MODE) {
+    const sdkConfig = await getSDKConfig();
+    printSDKModeBanner(sdkConfig);
+    await checkOnChainStatus(sdkConfig);
+
+    const intent = buildIntent({
+      target: '0x1234567890123456789012345678901234567890', // known exploit addr
+      value: 0n,
+      amount: SCENARIO.amount,
+      sourceChain: 11155111,
+      // Cross-chain bridge not available on Sepolia demo — same-chain with blacklisted target
+    });
+
+    try {
+      const result = await executeViaSDK(sdkConfig, intent, sdkConfig.signerAddress);
+      // If we get here, the blacklisted addr wasn't caught
+      printFinalResult(true, 'TRANSACTION EXECUTED (blacklist not enforced)');
+      console.log();
+    } catch (error: any) {
+      if (error.message.includes('blacklisted') || error.message.includes('Blacklisted') || error.message.includes('rejected')) {
+        printFinalResult(false, 'TRANSACTION BLOCKED - BLACKLISTED DESTINATION');
+        printInfo('SDK correctly blocked transfer to known exploit address');
+      } else {
+        printFinalResult(false, `SDK ERROR: ${error.message}`);
+      }
+    }
+    console.log('Summary:');
+    printKeyValue('Mode', `SDK (${sdkConfig.networkName})`);
+    printKeyValue('Target', '0x1234...7890 (known exploit)');
+    printKeyValue('Expected', 'BLOCKED by blacklist/guardian rejection');
+    console.log();
+    return;
+  }
 
   // ─── Live Mode Setup ───
   let liveConfig: LiveConfig | undefined;

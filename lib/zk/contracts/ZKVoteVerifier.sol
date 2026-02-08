@@ -24,11 +24,11 @@ pragma solidity ^0.8.20;
  */
 
 interface IGroth16Verifier {
-    function verify(
-        uint[2] memory _pA,
-        uint[2][2] memory _pB,
-        uint[2] memory _pC,
-        uint[] memory _pubInput
+    function verifyProof(
+        uint[2] calldata _pA,
+        uint[2][2] calldata _pB,
+        uint[2] calldata _pC,
+        uint[23] calldata _pubSignals
     ) external view returns (bool);
 }
 
@@ -178,7 +178,7 @@ contract ZKVoteVerifier {
         // ─── Build public inputs for ZK verification ───
         // Order must match the circuit's public input declaration order:
         //   [proposalId, commitment, guardianPubKeys[0..9][x,y], revealedVote]
-        uint[] memory pubInput = new uint[](23);
+        uint[23] memory pubInput;
         pubInput[0]  = uint256(proposalId);
         pubInput[1]  = uint256(p.commitments[guardianSlot]);
         
@@ -192,7 +192,7 @@ contract ZKVoteVerifier {
 
         // ─── Verify ZK proof ───
         require(
-            verifier.verify(pA, pB, pC, pubInput),
+            verifier.verifyProof(pA, pB, pC, pubInput),
             "ZK proof verification failed"
         );
 

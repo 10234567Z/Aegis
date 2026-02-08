@@ -22,11 +22,12 @@
     "demo:live:5": "npx ts-node mockExamples/SmallTxCross.ts --live"
   },
   "dependencies": {
+    "dotenv": "^17.2.4",
     "ethers": "^6.16.0"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",
-    "typescript": "^5.9.3",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   }
 }

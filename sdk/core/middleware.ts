@@ -140,7 +140,7 @@ export class SecurityMiddleware {
         body: JSON.stringify({
           guardianApiUrl: this.config.guardianApiUrl,
           proposal: {
-            txHash: txHash ?? this.generateTxHash({ target, data, value, amount: amount ?? value } as any),
+            txHash: txHash ?? this.generateTxHash({ target, data, value, amount: amount ?? value, sourceChain: chainId, type: 'generic' } as TransactionIntent),
             sender,
             senderENS: ensName || null,
             target,
@@ -282,9 +282,10 @@ export class SecurityMiddleware {
     }
 
     // Step 2: Start parallel processes
+    const agentProposalId = agentAnalysis?.proposalId;
     const [vdfProof, frostSignature] = await Promise.all([
       this.handleVDF(routedIntent, txHash, requiresVDF, onProgress),
-      this.handleVoting(routedIntent, txHash, onProgress),
+      this.handleVoting(routedIntent, txHash, onProgress, agentProposalId),
     ]);
 
     this.emitProgress(onProgress, {
@@ -547,21 +548,30 @@ export class SecurityMiddleware {
 
   /**
    * Handle Guardian voting and FROST signature retrieval.
+   * If agent already submitted the proposal, reuse its proposalId.
    */
   private async handleVoting(
     intent: TransactionIntent,
     txHash: string,
     onProgress?: (progress: ExecutionProgress) => void,
+    existingProposalId?: string,
   ): Promise<FrostSignature> {
-    const proposalId = await this.zkClient.submitForReview({
-      txHash,
-      target: intent.target,
-      value: intent.value,
-      data: intent.data,
-      chainId: intent.sourceChain,
-      sender: await this.getSenderAddress(),
-      amount: intent.amount,
-    });
+    let proposalId: string;
+
+    if (existingProposalId) {
+      // Agent already submitted to Guardian — reuse proposal
+      proposalId = existingProposalId;
+    } else {
+      proposalId = await this.zkClient.submitForReview({
+        txHash,
+        target: intent.target,
+        value: intent.value,
+        data: intent.data,
+        chainId: intent.sourceChain,
+        sender: await this.getSenderAddress(),
+        amount: intent.amount,
+      });
+    }
 
     const voteResult = await this.zkClient.waitForVoteResult(proposalId, (status) => {
       this.emitProgress(onProgress, {

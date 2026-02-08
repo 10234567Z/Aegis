@@ -79,6 +79,7 @@ import {
 
 import { ensureServices, getLiveConfig, printLiveModeBanner, LiveConfig } from './shared/liveMode';
 import { liveMLAnalysis, liveGuardianVoting, liveVDFComputation, liveVDFBypass, liveExecution, createLiveZeroProof } from './shared/liveClients';
+import { SEPOLIA_MODE, getSDKConfig, printSDKModeBanner, executeViaSDK, checkOnChainStatus, buildIntent, SDKConfig } from './shared/sdkMode';
 
 // ─── Script Configuration ───
 
@@ -99,6 +100,35 @@ const SCENARIO = {
 
 async function main() {
   printHeader(`USE CASE 4: ${SCENARIO.name.toUpperCase()}`);
+
+  // ─── Sepolia SDK Mode ───
+  if (SEPOLIA_MODE) {
+    const sdkConfig = await getSDKConfig();
+    printSDKModeBanner(sdkConfig);
+    await checkOnChainStatus(sdkConfig);
+
+    const intent = buildIntent({
+      target: sdkConfig.signerAddress,
+      value: 0n,
+      amount: SCENARIO.amount,
+      sourceChain: 11155111,
+      // Cross-chain bridge not available on Sepolia demo — same-chain execution
+    });
+
+    try {
+      const result = await executeViaSDK(sdkConfig, intent, sdkConfig.signerAddress);
+      printFinalResult(result.success, 'CROSS-CHAIN TRANSFER EXECUTED ON SEPOLIA');
+      console.log('Summary:');
+      printKeyValue('Mode', `SDK (${sdkConfig.networkName})`);
+      printKeyValue('TX Hash', result.txHash);
+      printKeyValue('Route', 'Sepolia → Polygon (via LI.FI)');
+      printKeyValue('Execution Time', `${result.executionTime}ms`);
+      console.log();
+    } catch (error: any) {
+      printFinalResult(false, `SDK EXECUTION FAILED: ${error.message}`);
+    }
+    return;
+  }
 
   // ─── Live Mode Setup ───
   let liveConfig: LiveConfig | undefined;

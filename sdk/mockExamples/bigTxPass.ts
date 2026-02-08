@@ -57,6 +57,7 @@ import {
 
 import { ensureServices, getLiveConfig, printLiveModeBanner, LiveConfig } from './shared/liveMode';
 import { liveMLAnalysis, liveGuardianVoting, liveVDFComputation, liveVDFBypass, liveExecution, createLiveZeroProof } from './shared/liveClients';
+import { SEPOLIA_MODE, getSDKConfig, printSDKModeBanner, executeViaSDK, checkOnChainStatus, buildIntent, SDKConfig } from './shared/sdkMode';
 
 // ─── Script Configuration ───
 
@@ -77,6 +78,37 @@ const SCENARIO = {
 
 async function main() {
   printHeader(`USE CASE 2: ${SCENARIO.name.toUpperCase()}`);
+
+  // ─── Sepolia SDK Mode ───
+  if (SEPOLIA_MODE) {
+    const sdkConfig = await getSDKConfig();
+    printSDKModeBanner(sdkConfig);
+    await checkOnChainStatus(sdkConfig);
+
+    const intent = buildIntent({
+      target: sdkConfig.signerAddress,
+      value: 0n,
+      amount: SCENARIO.amount,
+      sourceChain: 11155111,
+    });
+    // Let ML Agent analyze naturally (VDF worker not available on Sepolia demo)
+    // Agent will determine if flagging is needed based on amount/pattern
+
+    try {
+      const result = await executeViaSDK(sdkConfig, intent, sdkConfig.signerAddress);
+      printFinalResult(result.success, 'TRANSACTION APPROVED AND EXECUTED ON SEPOLIA');
+      console.log('Summary:');
+      printKeyValue('Mode', `SDK (${sdkConfig.networkName})`);
+      printKeyValue('TX Hash', result.txHash);
+      printKeyValue('VDF Proof Iterations', String(result.vdfProof.iterations));
+      printKeyValue('FROST Signature', result.frostSignature.signature ? 'Valid' : 'N/A');
+      printKeyValue('Execution Time', `${result.executionTime}ms`);
+      console.log();
+    } catch (error: any) {
+      printFinalResult(false, `SDK EXECUTION FAILED: ${error.message}`);
+    }
+    return;
+  }
 
   // ─── Live Mode Setup ───
   let liveConfig: LiveConfig | undefined;

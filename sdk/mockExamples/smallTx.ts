@@ -53,6 +53,7 @@ import {
 
 import { ensureServices, getLiveConfig, printLiveModeBanner, LiveConfig } from './shared/liveMode';
 import { liveMLAnalysis, liveGuardianVoting, liveExecution, createLiveZeroProof } from './shared/liveClients';
+import { SEPOLIA_MODE, getSDKConfig, printSDKModeBanner, executeViaSDK, checkOnChainStatus, buildIntent, SDKConfig } from './shared/sdkMode';
 
 // ─── Script Configuration ───
 
@@ -73,6 +74,34 @@ const SCENARIO = {
 
 async function main() {
   printHeader(`USE CASE 1: ${SCENARIO.name.toUpperCase()}`);
+
+  // ─── Sepolia SDK Mode ───
+  if (SEPOLIA_MODE) {
+    const sdkConfig = await getSDKConfig();
+    printSDKModeBanner(sdkConfig);
+    await checkOnChainStatus(sdkConfig);
+
+    const intent = buildIntent({
+      target: sdkConfig.signerAddress, // self-transfer for demo
+      value: 0n, // don't send real ETH
+      amount: SCENARIO.amount,
+      sourceChain: 11155111, // Sepolia
+    });
+
+    try {
+      const result = await executeViaSDK(sdkConfig, intent, sdkConfig.signerAddress);
+      printFinalResult(result.success, 'TRANSACTION APPROVED AND EXECUTED ON SEPOLIA');
+      console.log('Summary:');
+      printKeyValue('Mode', `SDK (${sdkConfig.networkName})`);
+      printKeyValue('TX Hash', result.txHash);
+      printKeyValue('Execution Time', `${result.executionTime}ms`);
+      if (result.ensName) printKeyValue('ENS', result.ensName);
+      console.log();
+    } catch (error: any) {
+      printFinalResult(false, `SDK EXECUTION FAILED: ${error.message}`);
+    }
+    return;
+  }
 
   // ─── Live Mode Setup ───
   let liveConfig: LiveConfig | undefined;

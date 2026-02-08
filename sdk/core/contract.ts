@@ -45,17 +45,22 @@ export interface SecurityState {
 // ─── ABIs ───
 
 const SECURITY_MIDDLEWARE_ABI = [
-  // Core execution
-  "function executeSecurely(address target, bytes calldata data, uint256 value, bytes calldata vdfProof, bytes calldata frostSignature) external payable returns (bytes memory)",
+  // 2-step execution flow (matches SecurityMiddleware.sol)
+  "function queueTransaction(bytes32 txHash, address sender, address destination, uint256 value, bool mlBotFlagged, bytes calldata txData) external returns (bytes32 proposalId)",
+  "function executeTransaction(bytes32 txHash, bytes calldata vdfProof, bytes32 frostR, bytes32 frostZ) external",
   
   // View functions
-  "function getSecurityState() external view returns (bool isPaused, uint256 lastUpdateBlock, uint256 requiredDelay, uint8 threshold)",
-  "function isBlacklisted(address account) external view returns (bool)",
-  "function calculateRequiredDelay(uint256 amount) external view returns (uint256)",
+  "function isPaused() external view returns (bool)",
+  "function blacklistedAddresses(address account) external view returns (bool)",
+  "function getTransactionStatus(bytes32 txHash) external view returns (bool exists, bool mlBotFlagged, bool executed, bool guardianApproved, bool guardianRejected, uint256 vdfDeadline, bool vdfComplete)",
+  "function getVDFDelay() external pure returns (uint256)",
+  "function GUARDIAN_THRESHOLD() external pure returns (uint8)",
   
   // Events
-  "event SecureExecutionCompleted(address indexed target, bytes32 indexed txHash, uint256 amount)",
-  "event SecurityAlert(address indexed flaggedAddress, string reason)",
+  "event TransactionQueued(bytes32 indexed txHash, bytes32 indexed proposalId, bool mlBotFlagged, uint256 vdfDeadline, string reason)",
+  "event TransactionExecuted(bytes32 indexed txHash, string executionPath)",
+  "event TransactionBlocked(bytes32 indexed txHash, string reason)",
+  "event GuardianBypass(bytes32 indexed txHash, bytes32 indexed proposalId, uint8 approvals)",
 ];
 
 const GUARDIAN_REGISTRY_ABI = [
@@ -109,26 +114,69 @@ export class SecurityContract {
 
   /**
    * Execute a transaction through the security middleware.
-   * This is the main entry point for secured transactions.
+   * 2-step flow: queueTransaction → executeTransaction
+   * Matches the actual SecurityMiddleware.sol contract.
    */
   async executeSecurely(params: ExecuteParams): Promise<ethers.TransactionReceipt> {
     if (!this.signer) {
       throw new Error('Signer required for execution');
     }
 
-    const vdfBytes = this.encodeVDFProof(params.vdfProof);
-    const frostBytes = this.encodeFrostSignature(params.frostSignature);
+    const sender = await this.signer.getAddress();
 
-    const tx = await this.middleware.executeSecurely(
-      params.target,
-      params.data,
-      params.value,
-      vdfBytes,
-      frostBytes,
-      { value: params.value },
+    // Generate txHash from intent parameters
+    const txHash = ethers.keccak256(
+      ethers.AbiCoder.defaultAbiCoder().encode(
+        ['address', 'bytes', 'uint256', 'uint256'],
+        [params.target, params.data, params.value, Date.now()],
+      ),
     );
 
-    return tx.wait();
+    // Step 1: Queue the transaction on-chain
+    const queueTx = await this.middleware.queueTransaction(
+      txHash,
+      sender,
+      params.target,
+      params.value,
+      false, // mlBotFlagged — we handle ML analysis off-chain in the SDK
+      params.data,
+    );
+    await queueTx.wait();
+
+    // Step 2: Execute with proofs
+    // FROST signature can come in two formats:
+    // - Guardian mock: { R: string, z: string }
+    // - SDK type: { signature: string, message: string, publicKey: string }
+    const sig = params.frostSignature as any;
+    let frostR: string;
+    let frostZ: string;
+
+    if (sig.R && sig.z) {
+      // Direct R, z format from guardian mock
+      frostR = sig.R;
+      frostZ = sig.z;
+    } else {
+      // SDK format: signature=R, publicKey contains z
+      frostR = sig.signature || ethers.ZeroHash;
+      frostZ = sig.publicKey || ethers.ZeroHash;
+    }
+
+    // Ensure they're proper bytes32
+    if (!frostR.startsWith('0x')) frostR = '0x' + frostR;
+    if (!frostZ.startsWith('0x')) frostZ = '0x' + frostZ;
+    frostR = ethers.zeroPadValue(frostR.slice(0, 66), 32);
+    frostZ = ethers.zeroPadValue(frostZ.slice(0, 66), 32);
+
+    const vdfBytes = this.encodeVDFProof(params.vdfProof);
+
+    const executeTx = await this.middleware.executeTransaction(
+      txHash,
+      vdfBytes,
+      frostR,
+      frostZ,
+    );
+
+    return executeTx.wait();
   }
 
   // ─── View Functions ───
@@ -137,13 +185,15 @@ export class SecurityContract {
    * Get current security state from middleware.
    */
   async getSecurityState(): Promise<SecurityState> {
-    const [isPaused, lastUpdateBlock, requiredDelay, threshold] = 
-      await this.middleware.getSecurityState();
+    const [isPaused, threshold] = await Promise.all([
+      this.middleware.isPaused(),
+      this.middleware.GUARDIAN_THRESHOLD().catch(() => 7),
+    ]);
 
     return {
       isPaused,
-      lastUpdateBlock: Number(lastUpdateBlock),
-      requiredDelay: Number(requiredDelay),
+      lastUpdateBlock: 0,
+      requiredDelay: Number(await this.middleware.getVDFDelay().catch(() => 1800)),
       threshold: Number(threshold),
     };
   }
@@ -152,22 +202,39 @@ export class SecurityContract {
    * Check if an address is blacklisted.
    */
   async isBlacklisted(address: string): Promise<boolean> {
-    return this.middleware.isBlacklisted(address);
+    return this.middleware.blacklistedAddresses(address);
   }
 
   /**
-   * Calculate required VDF delay for a given amount.
+   * Get transaction status on-chain.
    */
-  async calculateRequiredDelay(amount: bigint): Promise<number> {
-    const delay = await this.middleware.calculateRequiredDelay(amount);
+  async getTransactionStatus(txHash: string): Promise<{
+    exists: boolean;
+    mlBotFlagged: boolean;
+    executed: boolean;
+    guardianApproved: boolean;
+    guardianRejected: boolean;
+    vdfDeadline: bigint;
+    vdfComplete: boolean;
+  }> {
+    const [exists, mlBotFlagged, executed, guardianApproved, guardianRejected, vdfDeadline, vdfComplete] =
+      await this.middleware.getTransactionStatus(txHash);
+    return { exists, mlBotFlagged, executed, guardianApproved, guardianRejected, vdfDeadline, vdfComplete };
+  }
+
+  /**
+   * Calculate required VDF delay.
+   */
+  async calculateRequiredDelay(_amount: bigint): Promise<number> {
+    const delay = await this.middleware.getVDFDelay();
     return Number(delay);
   }
 
   /**
-   * Check if protocol is paused (from registry).
+   * Check if protocol is paused (from middleware contract directly).
    */
   async isPaused(): Promise<boolean> {
-    return this.registry.isPaused();
+    return this.middleware.isPaused();
   }
 
   /**

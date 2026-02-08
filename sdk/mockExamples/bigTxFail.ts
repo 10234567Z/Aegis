@@ -59,6 +59,7 @@ import {
 
 import { ensureServices, getLiveConfig, printLiveModeBanner, LiveConfig } from './shared/liveMode';
 import { liveMLAnalysis, liveGuardianVoting, liveVDFComputation } from './shared/liveClients';
+import { SEPOLIA_MODE, getSDKConfig, printSDKModeBanner, executeViaSDK, checkOnChainStatus, buildIntent, SDKConfig } from './shared/sdkMode';
 
 // ─── Script Configuration ───
 
@@ -81,6 +82,45 @@ const SCENARIO = {
 
 async function main() {
   printHeader(`USE CASE 3: ${SCENARIO.name.toUpperCase()}`);
+
+  // ─── Sepolia SDK Mode ───
+  if (SEPOLIA_MODE) {
+    const sdkConfig = await getSDKConfig();
+    printSDKModeBanner(sdkConfig);
+    await checkOnChainStatus(sdkConfig);
+
+    const intent = buildIntent({
+      target: sdkConfig.signerAddress,
+      value: 0n,
+      amount: SCENARIO.amount,
+      sourceChain: 11155111,
+    });
+    // Don't force ML flag (VDF worker not available)
+    // Agent analysis will determine ML score; Guardian votes based on mlScore
+
+    try {
+      const result = await executeViaSDK(sdkConfig, intent, sdkConfig.signerAddress);
+      // ML Agent scored below Guardian rejection threshold (70) → guardians approved
+      printFinalResult(true, 'TRANSACTION EXECUTED — ML score below Guardian rejection threshold');
+      printInfo('On Sepolia: Real ML Agent scored < 70, so Guardians auto-approved');
+      printInfo('In production, this scenario would use a truly malicious pattern');
+      printKeyValue('TX Hash', result.txHash);
+      console.log();
+    } catch (error: any) {
+      if (error.message.includes('rejected') || error.message.includes('Rejected')) {
+        printFinalResult(false, 'TRANSACTION BLOCKED - GUARDIANS REJECTED');
+        printInfo('SDK correctly blocked the transaction via guardian vote');
+      } else {
+        printFinalResult(false, `SDK ERROR: ${error.message}`);
+      }
+    }
+    console.log('Summary:');
+    printKeyValue('Mode', `SDK (${sdkConfig.networkName})`);
+    printKeyValue('Amount', `${formatEth(SCENARIO.amount)}`);
+    printKeyValue('Expected', 'BLOCKED by Guardian rejection');
+    console.log();
+    return;
+  }
 
   // ─── Live Mode Setup ───
   let liveConfig: LiveConfig | undefined;

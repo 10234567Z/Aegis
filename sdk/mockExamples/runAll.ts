@@ -12,6 +12,7 @@
  * Usage:
  *   npx ts-node sdk/mockExamples/runAll.ts          # Mock mode (all simulated)
  *   npx ts-node sdk/mockExamples/runAll.ts --live    # Live mode (real services)
+ *   npx ts-node sdk/mockExamples/runAll.ts --sepolia  # Sepolia mode (real SDK on testnet)
  *   npx ts-node sdk/mockExamples/runAll.ts --fast    # Fast mode (skip delays)
  */
 
@@ -22,6 +23,7 @@ import { runBigTxCrossChainPass } from './BigTxCrossPass';
 import { runSmallTxCrossChainFail } from './SmallTxCross';
 import { clearNetworkCache } from './shared/mockGuardians';
 import { LIVE_MODE } from './shared/utils';
+import { SEPOLIA_MODE } from './shared/sdkMode';
 import { ensureServices, printLiveModeBanner } from './shared/liveMode';
 
 // ─── Configuration ───
@@ -95,8 +97,8 @@ function printSimpleBanner(): void {
   console.log('║                    ETHGlobal HackMoney 2026                          ║');
   console.log('║                                                                      ║');
   if (LIVE_MODE) {
-    console.log(`║     ${COLORS.magenta}${COLORS.bright}MODE: LIVE — Real APIs, Real Contracts, Real FROST${COLORS.reset}              ║`);
-  } else {
+    console.log(`║     ${COLORS.magenta}${COLORS.bright}MODE: LIVE — Real APIs, Real Contracts, Real FROST${COLORS.reset}              ║`);  } else if (SEPOLIA_MODE) {
+    console.log(`\u2551     ${COLORS.green}${COLORS.bright}MODE: SEPOLIA \u2014 Real SDK SecurityMiddleware on Testnet${COLORS.reset}         \u2551`);  } else {
     console.log('║     MODE: MOCK — All components simulated locally                   ║');
   }
   console.log('║                                                                      ║');
@@ -166,8 +168,8 @@ async function runAllScripts(): Promise<void> {
   console.log(`${COLORS.bright}Starting demo execution...${COLORS.reset}\n`);
 
   if (LIVE_MODE) {
-    console.log(`${COLORS.magenta}Note: Using real APIs — Hardhat :8545, Agent :5001, Guardian :3001, VDF :3000${COLORS.reset}\n`);
-  } else {
+    console.log(`${COLORS.magenta}Note: Using real APIs — Hardhat :8545, Agent :5001, Guardian :3001, VDF :3000${COLORS.reset}\n`);  } else if (SEPOLIA_MODE) {
+    console.log(`${COLORS.green}Note: Using real SDK SecurityMiddleware against Sepolia testnet${COLORS.reset}\n`);  } else {
     console.log(`${COLORS.gray}Note: Guardian network is shared across all scripts (DKG runs once)${COLORS.reset}\n`);
   }
 

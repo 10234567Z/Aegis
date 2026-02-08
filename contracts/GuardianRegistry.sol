@@ -35,7 +35,7 @@ interface IZKVoteVerifier {
 }
 
 interface IFROSTVerifier {
-    function verify(bytes32 message, bytes calldata signature) external view returns (bool);
+    function verify(bytes32 message, bytes32 R, bytes32 z) external returns (bool);
 }
 
 contract GuardianRegistry {
@@ -164,11 +164,13 @@ contract GuardianRegistry {
      * @notice Executes a proposal after guardian approval.
      * @dev Called by any guardian after ZK vote finalizes and FROST signature is created.
      * @param proposalId The proposal to execute.
-     * @param frostSignature Aggregated FROST signature from 7+ guardians.
+     * @param frostR FROST signature commitment point R.
+     * @param frostZ FROST signature scalar z.
      */
     function executeProposal(
         bytes32 proposalId,
-        bytes calldata frostSignature
+        bytes32 frostR,
+        bytes32 frostZ
     ) external {
         ProposalData storage p = proposals[proposalId];
         require(!p.executed, "Proposal already executed");
@@ -181,7 +183,7 @@ contract GuardianRegistry {
 
         // ─── Verify FROST signature ───
         require(
-            frostVerifier.verify(proposalId, frostSignature),
+            frostVerifier.verify(proposalId, frostR, frostZ),
             "Invalid FROST signature"
         );
 
@@ -243,11 +245,12 @@ contract GuardianRegistry {
      */
     function emergencyPause(
         bytes32 eventId,
-        bytes calldata frostSignature
+        bytes32 frostR,
+        bytes32 frostZ
     ) external {
         require(!isPaused, "Already paused");
         require(
-            frostVerifier.verify(keccak256(abi.encodePacked("EMERGENCY_PAUSE", eventId)), frostSignature),
+            frostVerifier.verify(keccak256(abi.encodePacked("EMERGENCY_PAUSE", eventId)), frostR, frostZ),
             "Invalid FROST signature"
         );
 
