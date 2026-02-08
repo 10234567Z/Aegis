@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { BgCanvas } from "@/components/BgCanvas";
+import { BackgroundEffectProvider } from "@/components/BackgroundContext";
+import { ContentGate } from "@/components/ContentGate";
 import "./globals.css";
 
 const inter = Inter({
@@ -31,7 +34,10 @@ export default function RootLayout({
         <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
       </head>
       <body className="font-sans antialiased">
-        {children}
+        <BackgroundEffectProvider>
+          <BgCanvas />
+          <ContentGate>{children}</ContentGate>
+        </BackgroundEffectProvider>
       </body>
     </html>
   );

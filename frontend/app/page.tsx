@@ -1,46 +1,31 @@
-import Link from "next/link";
 import { Header } from "@/components/Header";
+import { HeroCtas } from "@/components/HeroCtas";
 
 export default function MainPage() {
   return (
-    <div className="relative flex size-full min-h-screen flex-col overflow-x-hidden bg-surface">
+    <div className="relative flex size-full min-h-screen flex-col overflow-x-hidden bg-transparent">
       <div className="layout-container flex h-full grow flex-col">
         <Header />
-        <main className="px-4 md:px-10 lg:px-40 flex flex-1 justify-center items-center py-16 md:py-20">
-          <div className="layout-content-container flex flex-col max-w-[800px] flex-1 w-full text-center">
+        <main className="px-4 md:px-8 lg:px-32 flex flex-1 justify-center items-center py-16 md:py-20 lg:py-24">
+          <div className="layout-content-container flex flex-col max-w-[960px] flex-1 w-full text-center">
             <span className="inline-block text-brand text-xs font-semibold uppercase tracking-[0.2em] mb-6">
-              Web3 transaction security
+              AI Guardian for Web3
             </span>
-            <h1 className="text-white text-4xl md:text-6xl lg:text-7xl font-bold leading-[1.1] tracking-[-0.03em] mb-6">
-              Security that moves
+            <h1 className="text-white text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.08] tracking-[-0.03em] mb-6">
+              Web3 Security which
               <br />
-              <span className="text-brand">at the speed of chain</span>
+              <span className="text-brand">detects and prevents</span>
             </h1>
-            <p className="text-muted text-lg md:text-xl max-w-[560px] mx-auto leading-relaxed mb-10">
-              AI-powered protection for every contract interaction.
+            <p className="text-muted text-base md:text-lg max-w-[560px] mx-auto leading-relaxed mb-10">
+              AI-powered protection for every contract interaction
               <br />
               We detect risk, trigger VDF and FROST verification when it matters, and give you a single dashboard to stay in control.
             </p>
-            <div className="flex flex-wrap justify-center gap-4">
-              <Link
-                href="/explorer"
-                className="inline-flex items-center justify-center rounded-xl bg-brand text-surface px-7 py-3.5 text-base font-semibold hover:opacity-90 transition-opacity"
-              >
-                Explore
-              </Link>
-              <a
-                href="https://github.com/10234567Z/Aegis"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center rounded-xl border border-border text-white px-7 py-3.5 text-base font-medium hover:bg-input transition-colors"
-              >
-                GitHub
-              </a>
-            </div>
+            <HeroCtas />
           </div>
         </main>
         <footer className="px-4 py-8 text-center">
-          <p className="text-muted text-sm">The best hack is the one that never happens.</p>
+          <p className="text-white text-sm">The best hack is the one that never happens.</p>
         </footer>
       </div>
     </div>
