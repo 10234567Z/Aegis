@@ -76,7 +76,7 @@ export async function getSDKConfig(): Promise<SDKConfig> {
   // Agent and Guardian are running locally
   const agentApiUrl = process.env.AGENT_URL || 'http://localhost:5000';
   const guardianApiUrl = process.env.GUARDIAN_URL || 'http://localhost:3001';
-  const vdfWorkerUrl = process.env.VDF_WORKER_URL || 'http://localhost:3000';
+  const vdfWorkerUrl = process.env.VDF_WORKER_URL || 'http://localhost:3003';
 
   const middleware = createSecurityMiddleware({
     security: {

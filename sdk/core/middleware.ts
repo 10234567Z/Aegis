@@ -286,11 +286,49 @@ export class SecurityMiddleware {
     }
 
     // Step 2: Start parallel processes
+    // Guardian approval can bypass VDF, so we race them
     const agentProposalId = agentAnalysis?.proposalId;
-    const [vdfProof, frostSignature] = await Promise.all([
-      this.handleVDF(routedIntent, txHash, requiresVDF, onProgress),
-      this.handleVoting(routedIntent, txHash, onProgress, agentProposalId),
-    ]);
+
+    let vdfProof: VDFProof;
+    let frostSignature: FrostSignature;
+    let vdfJobId: string | undefined;
+
+    if (requiresVDF) {
+      // Start VDF in background, then race with guardian voting
+      vdfJobId = await this.vdfClient.requestProof({
+        txHash,
+        chainId: routedIntent.sourceChain,
+        sender: await this.getSenderAddress(),
+        mlBotFlagged: true,
+      });
+
+      // Race: guardian voting vs VDF completion
+      const vdfPromise = this.vdfClient.waitForProof(vdfJobId, (status) => {
+        this.emitProgress(onProgress, {
+          stage: 'vdf-pending',
+          vdfStatus: status,
+          message: `VDF computation: ${status.progress}% (${status.estimatedTimeLeft}s remaining)`,
+        });
+      });
+
+      const votingPromise = this.handleVoting(routedIntent, txHash, onProgress, agentProposalId);
+
+      // Wait for guardian voting first (usually faster)
+      frostSignature = await votingPromise;
+
+      // Guardian approved — bypass VDF
+      if (vdfJobId) {
+        await this.vdfClient.bypassJob(vdfJobId);
+      }
+      vdfProof = this.vdfClient.createZeroProof();
+
+      // Cancel lingering VDF promise (it will resolve via bypass)
+      vdfPromise.catch(() => {});
+    } else {
+      // No VDF needed — just vote
+      vdfProof = this.vdfClient.createZeroProof();
+      frostSignature = await this.handleVoting(routedIntent, txHash, onProgress, agentProposalId);
+    }
 
     this.emitProgress(onProgress, {
       stage: 'ready',
@@ -339,6 +377,22 @@ export class SecurityMiddleware {
         ? 'Cross-chain transfer completed successfully'
         : 'Transaction executed successfully',
     });
+
+    // Step 5: Report execution to agent for SSE (fire-and-forget)
+    this.reportExecution({
+      txHash: receipt.hash,
+      sender,
+      senderENS: ensName,
+      target: routedIntent.target,
+      value: routedIntent.value.toString(),
+      amount: (routedIntent.amount ?? routedIntent.value).toString(),
+      chainId: routedIntent.sourceChain,
+      score: agentAnalysis?.score ?? 0,
+      verdict: agentAnalysis?.verdict ?? 'safe',
+      recommendation: (agentAnalysis?.flagged) ? 'review' : 'approve',
+      isFraud: agentAnalysis?.flagged ?? false,
+      executionTime: Date.now() - startTime,
+    }).catch(() => {});
 
     return {
       success: true,
@@ -636,6 +690,22 @@ export class SecurityMiddleware {
   ): void {
     if (callback) {
       callback(progress);
+    }
+  }
+
+  /**
+   * Report successful execution to agent for SSE broadcasting.
+   * Fire-and-forget — does not affect transaction outcome.
+   */
+  private async reportExecution(data: Record<string, unknown>): Promise<void> {
+    try {
+      await fetch(`${this.config.agentApiUrl}/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+    } catch {
+      // Non-critical — don't fail the transaction
     }
   }
 

@@ -15,6 +15,7 @@ import threading
 import time
 import requests
 from flask import Flask, request, jsonify, Response
+from flask_cors import CORS
 from dotenv import load_dotenv
 
 from src.etherscan import EtherscanClient
@@ -24,6 +25,7 @@ from src.model import FraudDetector
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app)  # Allow all origins (needed for frontend SSE)
 
 # Initialize clients
 etherscan = EtherscanClient()
@@ -71,9 +73,17 @@ def sse_stream(client_queue: queue.Queue):
                 sse_clients.remove(client_queue)
 
 
-@app.route("/events", methods=["GET"])
+@app.route("/events", methods=["GET", "OPTIONS"])
 def events():
     """SSE endpoint — streams real-time transaction events."""
+    # Handle CORS preflight
+    if request.method == "OPTIONS":
+        resp = Response("", status=204)
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return resp
+
     client_queue: queue.Queue = queue.Queue(maxsize=256)
     with sse_clients_lock:
         sse_clients.append(client_queue)
@@ -84,6 +94,7 @@ def events():
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
         },
     )
 
@@ -400,6 +411,14 @@ def review():
             "mlAnalysis": ml_analysis,
             "guardianStatus": guardian_status,
             "senderENS": sender_ens,
+            "proposal": {
+                "sender": sender,
+                "txHash": proposal.get("txHash"),
+                "target": proposal.get("target"),
+                "value": proposal.get("value"),
+                "amount": proposal.get("amount"),
+                "chainId": proposal.get("chainId"),
+            },
         }
 
         sse_publish("review", result)
@@ -407,6 +426,34 @@ def review():
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/report", methods=["POST"])
+def report_execution():
+    """
+    Report a completed on-chain execution.
+    Called by SDK after executeSecurely() succeeds.
+    Emits an SSE 'execution' event with the real tx hash.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing request body"}), 400
+
+    sse_publish("execution", {
+        "txHash": data.get("txHash"),
+        "sender": data.get("sender"),
+        "senderENS": data.get("senderENS"),
+        "target": data.get("target"),
+        "value": data.get("value"),
+        "amount": data.get("amount"),
+        "chainId": data.get("chainId"),
+        "score": data.get("score"),
+        "verdict": data.get("verdict"),
+        "recommendation": data.get("recommendation"),
+        "isFraud": data.get("isFraud"),
+        "executionTime": data.get("executionTime"),
+    })
+    return jsonify({"ok": True})
 
 
 def main():
@@ -417,7 +464,7 @@ def main():
     print(f"Starting DeFiGuardian ML Agent on port {port}")
     print(f"Model loaded: {detector.model is not None}")
     
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    app.run(host="0.0.0.0", port=port, debug=debug, threaded=True)
 
 
 if __name__ == "__main__":

@@ -23,17 +23,19 @@ export default function MainPage() {
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <Link
-                href="/dashboard"
+                href="/explorer"
                 className="inline-flex items-center justify-center rounded-xl bg-brand text-surface px-7 py-3.5 text-base font-semibold hover:opacity-90 transition-opacity"
               >
-                Open Dashboard
+                TX Explorer
               </Link>
-              <Link
-                href="/integrations"
+              <a
+                href="https://github.com/harsh-aegis/DeFiGuardian"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center justify-center rounded-xl border border-border text-white px-7 py-3.5 text-base font-medium hover:bg-input transition-colors"
               >
-                Integrations
-              </Link>
+                GitHub
+              </a>
             </div>
           </div>
         </main>

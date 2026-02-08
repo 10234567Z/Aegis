@@ -179,6 +179,20 @@ export class VDFClient {
   }
 
   /**
+   * Bypass VDF computation (guardian approval).
+   * Tells the worker to stop computing and mark job as bypassed.
+   */
+  async bypassJob(jobId: string): Promise<void> {
+    try {
+      await fetch(`${this.config.workerUrl}/vdf/bypass/${jobId}`, {
+        method: 'POST',
+      });
+    } catch {
+      // Non-critical — VDF poll loop will still eventually timeout
+    }
+  }
+
+  /**
    * Generate a mock proof for testing (skips actual computation).
    * Only available when worker is in dev mode.
    */

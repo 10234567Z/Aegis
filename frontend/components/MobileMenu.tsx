@@ -3,9 +3,7 @@
 import Link from "next/link";
 
 const navLinks = [
-  { href: "/explorer", label: "Explorer", title: "Web3 transaction explorer" },
-  { href: "/integrations", label: "Integrations", title: "Integrations" },
-  { href: "/dashboard", label: "Dashboard", title: "Dashboard" },
+  { href: "/explorer", label: "TX Explorer", title: "Transaction explorer" },
 ];
 
 type MobileMenuProps = {

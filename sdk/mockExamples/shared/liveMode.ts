@@ -21,7 +21,7 @@ import { printSuccess, printFailure, printInfo, printWarning } from './utils';
 // LIVE_MODE is exported from utils.ts (canonical source)
 
 const HARDHAT_URL = 'http://127.0.0.1:8545';
-const AGENT_URL = 'http://127.0.0.1:5001';
+const AGENT_URL = 'http://127.0.0.1:5000';
 const GUARDIAN_URL = 'http://127.0.0.1:3001';
 const VDF_WORKER_URL = 'http://127.0.0.1:3000';
 
@@ -260,7 +260,7 @@ export function printLiveModeBanner(): void {
   console.log(`${COLORS.magenta}${COLORS.bright}║            LIVE MODE — Real Infrastructure           ║${COLORS.reset}`);
   console.log(`${COLORS.magenta}${COLORS.bright}╠══════════════════════════════════════════════════════╣${COLORS.reset}`);
   console.log(`${COLORS.magenta}║${COLORS.reset}  Using real APIs, real contracts, real FROST signing  ${COLORS.magenta}║${COLORS.reset}`);
-  console.log(`${COLORS.magenta}║${COLORS.reset}  Hardhat :8545 | Agent :5001 | Guardian :3001        ${COLORS.magenta}║${COLORS.reset}`);
+  console.log(`${COLORS.magenta}║${COLORS.reset}  Hardhat :8545 | Agent :5000 | Guardian :3001        ${COLORS.magenta}║${COLORS.reset}`);
   console.log(`${COLORS.magenta}║${COLORS.reset}  VDF Worker :3000 | Chain ID: 31337                  ${COLORS.magenta}║${COLORS.reset}`);
   console.log(`${COLORS.magenta}${COLORS.bright}╚══════════════════════════════════════════════════════╝${COLORS.reset}`);
   console.log();

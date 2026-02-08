@@ -168,7 +168,7 @@ async function runAllScripts(): Promise<void> {
   console.log(`${COLORS.bright}Starting demo execution...${COLORS.reset}\n`);
 
   if (LIVE_MODE) {
-    console.log(`${COLORS.magenta}Note: Using real APIs — Hardhat :8545, Agent :5001, Guardian :3001, VDF :3000${COLORS.reset}\n`);  } else if (SEPOLIA_MODE) {
+    console.log(`${COLORS.magenta}Note: Using real APIs — Hardhat :8545, Agent :5000, Guardian :3001, VDF :3000${COLORS.reset}\n`);  } else if (SEPOLIA_MODE) {
     console.log(`${COLORS.green}Note: Using real SDK SecurityMiddleware against Sepolia testnet${COLORS.reset}\n`);  } else {
     console.log(`${COLORS.gray}Note: Guardian network is shared across all scripts (DKG runs once)${COLORS.reset}\n`);
   }

@@ -158,7 +158,7 @@ The script will:
 | Service | Port | Purpose |
 |---------|------|---------|
 | Hardhat Node | 8545 | Local EVM blockchain |
-| ML Agent | 5001 | Fraud detection (XGBoost model) |
+| ML Agent | 5000 | Fraud detection (XGBoost model) |
 | Guardian Mock | 3001 | FROST DKG + threshold voting |
 | VDF Worker | 3000 | Verifiable Delay Function computation |
 
