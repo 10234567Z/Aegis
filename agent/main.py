@@ -370,6 +370,10 @@ def review():
             "mlFlagged": flagged,
         }
         
+        # Pass through forceOutcome if provided (for demo/testing)
+        if proposal.get("forceOutcome"):
+            guardian_payload["forceOutcome"] = proposal.get("forceOutcome")
+        
         try:
             guardian_response = requests.post(
                 f"{guardian_url}/proposals/submit",

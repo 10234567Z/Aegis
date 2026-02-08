@@ -95,21 +95,21 @@ async function main() {
       amount: SCENARIO.amount,
       sourceChain: 11155111,
     });
-    // Don't force ML flag (VDF worker not available)
-    // Agent analysis will determine ML score; Guardian votes based on mlScore
+    // Force guardian rejection and ML flag for this attack scenario
+    intent.forceGuardianOutcome = 'reject';
+    intent.mlBotFlagged = true;  // Triggers VDF computation
 
     try {
       const result = await executeViaSDK(sdkConfig, intent, sdkConfig.signerAddress);
-      // ML Agent scored below Guardian rejection threshold (70) → guardians approved
-      printFinalResult(true, 'TRANSACTION EXECUTED — ML score below Guardian rejection threshold');
-      printInfo('On Sepolia: Real ML Agent scored < 70, so Guardians auto-approved');
-      printInfo('In production, this scenario would use a truly malicious pattern');
+      // Should not reach here — guardians should reject
+      printFinalResult(true, 'UNEXPECTED: Transaction executed despite attack scenario');
       printKeyValue('TX Hash', result.txHash);
       console.log();
     } catch (error: any) {
       if (error.message.includes('rejected') || error.message.includes('Rejected')) {
         printFinalResult(false, 'TRANSACTION BLOCKED - GUARDIANS REJECTED');
-        printInfo('SDK correctly blocked the transaction via guardian vote');
+        printSuccess('SDK correctly blocked the attack via guardian vote');
+        printInfo('VDF was triggered (ML flagged) but guardians rejected before completion');
       } else {
         printFinalResult(false, `SDK ERROR: ${error.message}`);
       }

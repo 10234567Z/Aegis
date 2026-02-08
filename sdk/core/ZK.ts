@@ -54,6 +54,7 @@ export interface TransactionProposal {
   chainId: number;                // Chain ID
   sender: string;                 // Transaction sender
   amount: bigint;                 // Parsed amount (for display)
+  forceOutcome?: 'approve' | 'reject';  // Force voting outcome (demo/testing only)
   timestamp: number;              // When proposal was created
 }
 
@@ -149,6 +150,7 @@ export class ZKVoteClient {
         chainId: proposal.chainId,
         sender: proposal.sender,
         amount: proposal.amount.toString(),
+        ...(proposal.forceOutcome ? { forceOutcome: proposal.forceOutcome } : {}),
       }),
     });
 

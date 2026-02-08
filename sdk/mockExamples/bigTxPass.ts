@@ -91,8 +91,8 @@ async function main() {
       amount: SCENARIO.amount,
       sourceChain: 11155111,
     });
-    // Let ML Agent analyze naturally (VDF worker not available on Sepolia demo)
-    // Agent will determine if flagging is needed based on amount/pattern
+    // ML flag triggers VDF computation in parallel with Guardian voting
+    intent.mlBotFlagged = true;
 
     try {
       const result = await executeViaSDK(sdkConfig, intent, sdkConfig.signerAddress);

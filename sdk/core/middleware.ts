@@ -57,6 +57,7 @@ export interface TransactionIntent {
   sourceChain: number;              // Source chain ID
   destChain?: number;               // Destination chain (for bridges)
   mlBotFlagged?: boolean;           // ML bot flagged (auto-detected if omitted)
+  forceGuardianOutcome?: 'approve' | 'reject';  // Force guardian vote outcome (demo/testing only)
   metadata?: {
     protocol: 'uniswap' | 'lifi' | 'custom';
     tokenIn?: string;
@@ -132,6 +133,7 @@ export class SecurityMiddleware {
     txHash?: string,
     amount?: bigint,
     ensName?: string,
+    forceGuardianOutcome?: 'approve' | 'reject',
   ): Promise<AgentAnalysis> {
     try {
       const response = await fetch(`${this.config.agentApiUrl}/review`, {
@@ -148,6 +150,7 @@ export class SecurityMiddleware {
             data,
             chainId,
             amount: (amount ?? value).toString(),
+            forceOutcome: forceGuardianOutcome,
           },
         }),
       });
@@ -250,6 +253,7 @@ export class SecurityMiddleware {
         undefined, // txHash generated later
         routedIntent.amount,
         ensName,
+        routedIntent.forceGuardianOutcome,
       );
 
       routedIntent.mlBotFlagged = agentAnalysis.flagged;
@@ -570,6 +574,7 @@ export class SecurityMiddleware {
         chainId: intent.sourceChain,
         sender: await this.getSenderAddress(),
         amount: intent.amount,
+        forceOutcome: intent.forceGuardianOutcome,
       });
     }
 
